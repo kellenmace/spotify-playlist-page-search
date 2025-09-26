@@ -6,7 +6,7 @@
   // OAuth configuration
   const SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
   const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
-  const REDIRECT_URI = chrome.identity.getRedirectURL();
+  const REDIRECT_URI = `chrome-extension://${chrome.runtime.id}/`;
   const SCOPES = "playlist-read-private playlist-read-collaborative";
 
   // Utility functions for PKCE
@@ -31,6 +31,14 @@
   // OAuth flow functions
   async function initiate_oauth_flow(client_id) {
     try {
+      console.log("Starting OAuth flow with client ID:", client_id);
+      console.log("Redirect URI:", REDIRECT_URI);
+
+      // Validate client ID
+      if (!client_id || client_id.trim() === "") {
+        throw new Error("Invalid client ID provided");
+      }
+
       // Generate PKCE parameters
       const code_verifier = generate_random_string(128);
       const code_challenge = await create_code_challenge(code_verifier);
@@ -55,12 +63,15 @@
       });
 
       const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
+      console.log("Authorization URL:", auth_url);
 
       // Launch OAuth flow
       const redirect_url = await chrome.identity.launchWebAuthFlow({
         url: auth_url,
         interactive: true,
       });
+
+      console.log("Received redirect URL:", redirect_url);
 
       // Extract authorization code from redirect URL
       const url_params = new URLSearchParams(new URL(redirect_url).search);
@@ -85,6 +96,11 @@
       return { success: true };
     } catch (error) {
       console.error("OAuth flow error:", error);
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
       return { success: false, error: error.message };
     } finally {
       // Clean up temporary PKCE parameters

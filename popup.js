@@ -5,10 +5,12 @@
     elements: {},
 
     init() {
+      console.log("Popup manager initializing...");
       this.cache_elements();
       this.bind_events();
       this.load_stored_data();
       this.update_ui_state();
+      console.log("Popup manager initialization complete");
     },
 
     cache_elements() {
@@ -18,17 +20,34 @@
       this.elements.auth_button = document.getElementById("auth-button");
       this.elements.client_id_input = document.getElementById("client-id");
       this.elements.save_button = document.getElementById("save-client-id");
+
+      console.log("Elements cached:", {
+        status_indicator: !!this.elements.status_indicator,
+        status_text: !!this.elements.status_text,
+        auth_button: !!this.elements.auth_button,
+        client_id_input: !!this.elements.client_id_input,
+        save_button: !!this.elements.save_button,
+      });
     },
 
     bind_events() {
-      this.elements.auth_button.addEventListener(
-        "click",
-        this.handle_auth_click.bind(this)
-      );
-      this.elements.save_button.addEventListener(
-        "click",
-        this.handle_save_client_id.bind(this)
-      );
+      console.log("Binding events...");
+
+      if (this.elements.auth_button) {
+        this.elements.auth_button.addEventListener(
+          "click",
+          this.handle_auth_click.bind(this)
+        );
+        console.log("Auth button event bound");
+      }
+
+      if (this.elements.save_button) {
+        this.elements.save_button.addEventListener(
+          "click",
+          this.handle_save_client_id.bind(this)
+        );
+        console.log("Save button event bound");
+      }
     },
 
     async load_stored_data() {
@@ -43,6 +62,10 @@
         }
 
         this.has_access_token = !!result.spotify_access_token;
+        console.log("Stored data loaded:", {
+          has_client_id: !!result.spotify_client_id,
+          has_access_token: this.has_access_token,
+        });
       } catch (error) {
         console.error("Error loading stored data:", error);
       }
@@ -65,9 +88,13 @@
 
       const has_client_id = this.elements.client_id_input.value.trim() !== "";
       this.elements.auth_button.disabled = !has_client_id;
+
+      console.log("UI state updated:", { is_connected, has_client_id });
     },
 
     async handle_auth_click() {
+      console.log("Auth button clicked");
+
       if (this.has_access_token) {
         await this.disconnect();
       } else {
@@ -101,7 +128,10 @@
         }
       } catch (error) {
         console.error("OAuth error:", error);
-        alert("Failed to connect to Spotify. Please try again.");
+        const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
+        alert(
+          `Failed to connect to Spotify: ${error.message}\n\nPlease check the console for more details and ensure your redirect URI is set to:\n${redirectUri}`
+        );
       } finally {
         this.elements.auth_button.disabled = false;
       }
@@ -123,7 +153,9 @@
     },
 
     async handle_save_client_id() {
+      console.log("Save Client ID button clicked");
       const client_id = this.elements.client_id_input.value.trim();
+      console.log("Client ID value:", client_id);
 
       if (!client_id) {
         alert("Please enter a valid Client ID.");
@@ -131,18 +163,26 @@
       }
 
       try {
+        console.log("Attempting to save client ID...");
+        this.elements.save_button.disabled = true;
+        this.elements.save_button.textContent = "Saving...";
+
         await chrome.storage.local.set({ spotify_client_id: client_id });
+        console.log("Client ID saved successfully");
+
         this.update_ui_state();
 
         // Show temporary success feedback
-        const original_text = this.elements.save_button.textContent;
         this.elements.save_button.textContent = "Saved!";
         setTimeout(() => {
-          this.elements.save_button.textContent = original_text;
+          this.elements.save_button.textContent = "Save Client ID";
+          this.elements.save_button.disabled = false;
         }, 1500);
       } catch (error) {
         console.error("Error saving client ID:", error);
         alert("Failed to save Client ID. Please try again.");
+        this.elements.save_button.textContent = "Save Client ID";
+        this.elements.save_button.disabled = false;
       }
     },
   };

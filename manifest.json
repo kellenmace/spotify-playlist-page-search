@@ -14,7 +14,8 @@
   "permissions": ["storage", "identity", "activeTab"],
   "host_permissions": [
     "https://open.spotify.com/*",
-    "https://api.spotify.com/*"
+    "https://api.spotify.com/*",
+    "https://accounts.spotify.com/*"
   ],
   "content_scripts": [
     {
