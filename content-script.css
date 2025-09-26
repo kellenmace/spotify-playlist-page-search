@@ -1,0 +1,296 @@
+/* Spotify Playlist Search Extension Styles */
+
+/* Search button styles */
+.spotify-playlist-search-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #b3b3b3;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  margin-left: 8px;
+}
+
+.spotify-playlist-search-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: scale(1.04);
+}
+
+.spotify-playlist-search-button:active {
+  transform: scale(0.96);
+}
+
+.spotify-playlist-search-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Modal dialog styles */
+.spotify-playlist-search-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  z-index: 9999;
+}
+
+.spotify-playlist-search-modal::backdrop {
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.spotify-playlist-search-modal-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vw;
+  max-width: 600px;
+  height: 80vh;
+  max-height: 700px;
+  background: #121212;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* Modal header with search input */
+.spotify-playlist-search-header {
+  padding: 24px 24px 16px 24px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #181818;
+}
+
+.spotify-playlist-search-header h2 {
+  margin: 0 0 16px 0;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.spotify-playlist-search-input-container {
+  position: relative;
+}
+
+.spotify-playlist-search-input {
+  width: 100%;
+  padding: 12px 16px 12px 48px;
+  background: #2a2a2a;
+  border: 2px solid #2a2a2a;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+
+.spotify-playlist-search-input:focus {
+  outline: none;
+  border-color: #1db954;
+}
+
+.spotify-playlist-search-input::placeholder {
+  color: #a7a7a7;
+}
+
+.spotify-playlist-search-input-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: #a7a7a7;
+}
+
+/* Modal content area */
+.spotify-playlist-search-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Loading and error states */
+.spotify-playlist-search-loading,
+.spotify-playlist-search-error,
+.spotify-playlist-search-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #a7a7a7;
+  font-size: 16px;
+  text-align: center;
+  padding: 40px;
+}
+
+.spotify-playlist-search-error {
+  color: #e22134;
+}
+
+.spotify-playlist-search-loading::after {
+  content: "";
+  width: 20px;
+  height: 20px;
+  border: 2px solid #2a2a2a;
+  border-top: 2px solid #1db954;
+  border-radius: 50%;
+  animation: spotify-playlist-search-spin 1s linear infinite;
+  margin-left: 12px;
+}
+
+@keyframes spotify-playlist-search-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Song list styles */
+.spotify-playlist-search-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.spotify-playlist-search-list::-webkit-scrollbar {
+  width: 12px;
+}
+
+.spotify-playlist-search-list::-webkit-scrollbar-track {
+  background: #121212;
+}
+
+.spotify-playlist-search-list::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+.spotify-playlist-search-list::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
+/* Song item styles */
+.spotify-playlist-search-song {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 12px 24px;
+  border-bottom: 1px solid rgba(42, 42, 42, 0.5);
+  transition: background-color 0.2s ease;
+  cursor: default;
+}
+
+.spotify-playlist-search-song:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.spotify-playlist-search-song-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0; /* Allows text truncation */
+}
+
+.spotify-playlist-search-song-title {
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 400;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-playlist-search-song-artist {
+  color: #a7a7a7;
+  font-size: 14px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-playlist-search-song-album {
+  color: #a7a7a7;
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Responsive design */
+@media (max-width: 600px) {
+  .spotify-playlist-search-modal-content {
+    width: 95vw;
+    height: 90vh;
+    border-radius: 8px;
+  }
+
+  .spotify-playlist-search-header {
+    padding: 16px 16px 12px 16px;
+  }
+
+  .spotify-playlist-search-header h2 {
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+
+  .spotify-playlist-search-song {
+    padding: 12px 16px;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .spotify-playlist-search-song-album {
+    text-align: left;
+    font-size: 13px;
+  }
+}
+
+/* Close button */
+.spotify-playlist-search-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #a7a7a7;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.spotify-playlist-search-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.spotify-playlist-search-close svg {
+  width: 16px;
+  height: 16px;
+}

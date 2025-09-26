@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Spotify Web Player Playlist Search",
+  "version": "1.0.0",
+  "description": "Search for songs within Spotify playlists - a feature the native Web Player doesn't provide",
+  "author": "Kellen Mace",
+  "homepage_url": "https://github.com/kellenmace/spotify-web-player-playlist-search/",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": ["storage", "identity", "activeTab"],
+  "host_permissions": [
+    "https://open.spotify.com/*",
+    "https://api.spotify.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://open.spotify.com/playlist/*"],
+      "js": ["content-script.js"],
+      "css": ["content-script.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Spotify Playlist Search Settings"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
