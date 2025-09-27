@@ -362,7 +362,9 @@
             )}</div>
           </div>
           <div class="spotify-playlist-search-song-album">
-            <a href="${this.escape_html(song.albumUrl)}" target="_blank" rel="noopener noreferrer">
+            <a href="${this.escape_html(
+              song.albumUrl
+            )}" target="_blank" rel="noopener noreferrer">
               ${this.escape_html(song.album)}
             </a>
           </div>
