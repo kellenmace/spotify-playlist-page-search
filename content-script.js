@@ -361,29 +361,31 @@
             )}" class="spotify-playlist-search-album-image">`
           : '<div class="spotify-playlist-search-album-image-placeholder"></div>';
 
+        const trackUrl = `https://open.spotify.com/track/${song.id}`;
+
         song_element.innerHTML = `
           ${albumImageHtml}
           <div class="spotify-playlist-search-song-info">
-            <div class="spotify-playlist-search-song-title">${this.escape_html(
-              song.name
-            )}</div>
+            <div class="spotify-playlist-search-song-title">
+              <a href="${this.escape_html(
+                trackUrl
+              )}" target="_blank" rel="noopener noreferrer">
+                ${this.escape_html(song.name)}
+              </a>
+            </div>
             <div class="spotify-playlist-search-song-artist">
               ${song.artists
                 .map(
                   (artist) =>
                     `<a href="${this.escape_html(
                       artist.url
-                    )}" target="_blank" rel="noopener noreferrer">${this.escape_html(
-                      artist.name
-                    )}</a>`
+                    )}">${this.escape_html(artist.name)}</a>`
                 )
                 .join(", ")}
             </div>
           </div>
           <div class="spotify-playlist-search-song-album">
-            <a href="${this.escape_html(
-              song.albumUrl
-            )}" target="_blank" rel="noopener noreferrer">
+            <a href="${this.escape_html(song.albumUrl)}">
               ${this.escape_html(song.album)}
             </a>
           </div>
