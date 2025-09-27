@@ -6,8 +6,24 @@
   // OAuth configuration
   const SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
   const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
-  const REDIRECT_URI = `chrome-extension://${chrome.runtime.id}/`;
   const SCOPES = "playlist-read-private playlist-read-collaborative";
+
+  // Track pending auth flow for tab-based OAuth fallback
+  let pendingAuthFlow = null;
+
+  // Use the proper redirect URI format for Chrome Identity API
+  function getRedirectURI() {
+    const redirectUri = chrome.identity.getRedirectURL();
+    console.log("Using redirect URI for Spotify OAuth:", redirectUri);
+    return redirectUri;
+  }
+
+  // Fallback redirect URI for tab-based authentication
+  function getFallbackRedirectURI() {
+    const redirectUri = `chrome-extension://${chrome.runtime.id}/oauth-callback`;
+    console.log("Using fallback redirect URI:", redirectUri);
+    return redirectUri;
+  }
 
   // Utility functions for PKCE
   function generate_random_string(length) {
@@ -28,11 +44,171 @@
       .replace(/=/g, "");
   }
 
+  // Alternative method when launchWebAuthFlow fails
+  async function openAuthPageInTab(client_id, code_challenge, state) {
+    console.log("Using fallback authentication method (new tab)");
+
+    // Create a promise that will be resolved when the auth flow completes
+    if (pendingAuthFlow) {
+      pendingAuthFlow.reject(
+        new Error("Authentication flow was interrupted by a new request")
+      );
+    }
+
+    const flowPromise = new Promise((resolve, reject) => {
+      pendingAuthFlow = { resolve, reject, state };
+
+      // Add timeout to prevent hanging indefinitely
+      setTimeout(() => {
+        if (pendingAuthFlow && pendingAuthFlow.state === state) {
+          console.error("OAuth flow timed out after 5 minutes");
+          pendingAuthFlow.reject(
+            new Error(
+              "OAuth flow timed out - user may have closed the tab or denied authorization"
+            )
+          );
+          pendingAuthFlow = null;
+        }
+      }, 5 * 60 * 1000); // 5 minutes timeout
+    });
+
+    // Build authorization URL with fallback redirect URI
+    const fallbackRedirectUri = getFallbackRedirectURI();
+    const auth_params = new URLSearchParams({
+      client_id: client_id,
+      response_type: "code",
+      redirect_uri: fallbackRedirectUri,
+      code_challenge_method: "S256",
+      code_challenge: code_challenge,
+      state: state,
+      scope: SCOPES,
+      show_dialog: "true",
+    });
+
+    const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
+    console.log("Fallback authorization URL:", auth_url);
+    console.log("Please complete authorization in the new tab that will open");
+
+    // Open the auth page in a new tab
+    const tab = await chrome.tabs.create({ url: auth_url });
+    console.log("Opened OAuth tab with ID:", tab.id);
+
+    // The promise will be resolved by the onBeforeNavigate listener when it detects the redirect
+    return flowPromise;
+  }
+
+  // Set up a listener for navigation to the redirect URI
+  chrome.webNavigation.onBeforeNavigate.addListener(
+    function (details) {
+      // Only process main frame navigation (not iframes)
+      const identityRedirectUri = chrome.identity.getRedirectURL();
+      const fallbackRedirectUri = getFallbackRedirectURI();
+
+      console.log("Navigation detected:", {
+        url: details.url,
+        frameId: details.frameId,
+        identityRedirectUri,
+        fallbackRedirectUri,
+        matchesIdentity: details.url.startsWith(identityRedirectUri),
+        matchesFallback: details.url.startsWith(fallbackRedirectUri),
+      });
+
+      if (
+        details.frameId === 0 &&
+        (details.url.startsWith(identityRedirectUri) ||
+          details.url.startsWith(fallbackRedirectUri))
+      ) {
+        try {
+          console.log("Intercepted OAuth redirect navigation to:", details.url);
+
+          // Extract parameters from the URL (check both search params and hash params)
+          const url = new URL(details.url);
+          let params = new URLSearchParams(url.search);
+
+          // If no search params, try hash params (some OAuth flows use hash)
+          if (!params.has("code") && !params.has("error") && url.hash) {
+            const hashParams = url.hash.substring(1);
+            params = new URLSearchParams(hashParams);
+          }
+
+          const code = params.get("code");
+          const state = params.get("state");
+          const error = params.get("error");
+
+          console.log("Extracted OAuth params:", {
+            code: code ? "[PRESENT]" : null,
+            state,
+            error,
+          });
+
+          // Find and resolve the pending auth flow
+          if (pendingAuthFlow) {
+            console.log("Found pending auth flow, resolving...");
+            if (error) {
+              console.error("OAuth error detected:", error);
+              pendingAuthFlow.reject(new Error(`OAuth error: ${error}`));
+            } else if (!code) {
+              console.error("No authorization code received");
+              pendingAuthFlow.reject(
+                new Error("No authorization code received")
+              );
+            } else if (state !== pendingAuthFlow.state) {
+              console.error("State parameter mismatch:", {
+                expected: pendingAuthFlow.state,
+                received: state,
+              });
+              pendingAuthFlow.reject(new Error("State parameter mismatch"));
+            } else {
+              console.log("OAuth flow successful, resolving with code");
+              pendingAuthFlow.resolve({ code, state });
+            }
+
+            // Clear the pending auth flow
+            pendingAuthFlow = null;
+
+            // Close the tab
+            console.log("Closing OAuth tab:", details.tabId);
+            chrome.tabs.remove(details.tabId);
+          } else {
+            console.warn(
+              "OAuth redirect detected but no pending auth flow found"
+            );
+          }
+        } catch (e) {
+          console.error("Error processing navigation:", e);
+          if (pendingAuthFlow) {
+            pendingAuthFlow.reject(e);
+            pendingAuthFlow = null;
+          }
+        }
+      }
+    },
+    {
+      url: [
+        { urlPrefix: chrome.identity.getRedirectURL() },
+        { urlPrefix: `chrome-extension://${chrome.runtime.id}/oauth-callback` },
+      ],
+    }
+  );
+
   // OAuth flow functions
   async function initiate_oauth_flow(client_id) {
     try {
       console.log("Starting OAuth flow with client ID:", client_id);
-      console.log("Redirect URI:", REDIRECT_URI);
+
+      // Get the redirect URI from Chrome Identity API
+      let REDIRECT_URI = getRedirectURI();
+      console.log("Using redirect URI:", REDIRECT_URI);
+
+      // Log both URIs for easy copy/paste to Spotify settings
+      const fallbackURI = getFallbackRedirectURI();
+      console.log("=== SPOTIFY APP REDIRECT URIS NEEDED ===");
+      console.log("1. Primary (Identity API):", REDIRECT_URI);
+      console.log("2. Fallback (Tab-based):", fallbackURI);
+      console.log(
+        "Add both URIs to https://developer.spotify.com/dashboard → Your App → Settings → Redirect URIs"
+      );
+      console.log("=========================================");
 
       // Validate client ID
       if (!client_id || client_id.trim() === "") {
@@ -50,7 +226,7 @@
         oauth_state: state,
       });
 
-      // Build authorization URL
+      // Build authorization URL using modern redirect URI
       const auth_params = new URLSearchParams({
         client_id: client_id,
         response_type: "code",
@@ -64,35 +240,73 @@
 
       const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
       console.log("Authorization URL:", auth_url);
+      console.log("Using redirect URI:", REDIRECT_URI);
 
-      // Launch OAuth flow
-      const redirect_url = await chrome.identity.launchWebAuthFlow({
-        url: auth_url,
-        interactive: true,
+      // Test if the auth URL is accessible
+      console.log("Auth URL components:", {
+        baseUrl: SPOTIFY_AUTHORIZE_URL,
+        params: Object.fromEntries(auth_params.entries()),
       });
 
-      console.log("Received redirect URL:", redirect_url);
+      // Try Chrome Identity API first, then fallback to tab-based flow
+      let redirect_url;
+      let authorization_code;
+      let returned_state;
+      let error_param;
+      try {
+        console.log("Attempting Chrome Identity API...");
+        redirect_url = await chrome.identity.launchWebAuthFlow({
+          url: auth_url,
+          interactive: true,
+        });
+        console.log("Received redirect URL:", redirect_url);
+        if (redirect_url) {
+          const parsed_url = new URL(redirect_url);
+          const url_params = new URLSearchParams(parsed_url.search);
+          authorization_code = url_params.get("code");
+          returned_state = url_params.get("state");
+          error_param = url_params.get("error");
+        }
+      } catch (identity_error) {
+        console.error("Chrome Identity API failed:", identity_error);
+        // Fallback to tab-based authentication
+        console.log("Falling back to tab-based authentication...");
+        try {
+          const result = await openAuthPageInTab(
+            client_id,
+            code_challenge,
+            state
+          );
+          authorization_code = result.code;
+          returned_state = result.state;
+          error_param = null;
+          // Update REDIRECT_URI for token exchange to use fallback URI
+          REDIRECT_URI = getFallbackRedirectURI();
+        } catch (tab_error) {
+          console.error("Tab-based authentication failed:", tab_error);
+          throw new Error(`Authentication failed: ${tab_error.message}`);
+        }
+      }
 
-      // Extract authorization code from redirect URL
-      const url_params = new URLSearchParams(new URL(redirect_url).search);
-      const authorization_code = url_params.get("code");
-      const returned_state = url_params.get("state");
-
+      // Validate the response
+      if (error_param) {
+        throw new Error(`OAuth error: ${error_param}`);
+      }
       if (!authorization_code) {
         throw new Error("No authorization code received");
       }
-
       if (returned_state !== state) {
         throw new Error("State parameter mismatch");
       }
-
       // Exchange authorization code for access token
+      console.log("Exchanging authorization code for access token...");
       await exchange_code_for_token(
         client_id,
         authorization_code,
-        code_verifier
+        code_verifier,
+        REDIRECT_URI
       );
-
+      console.log("OAuth flow completed successfully");
       return { success: true };
     } catch (error) {
       console.error("OAuth flow error:", error);
@@ -101,7 +315,22 @@
         message: error.message,
         stack: error.stack,
       });
-      return { success: false, error: error.message };
+
+      // Provide specific guidance for redirect URI issues
+      const identityRedirectUri = chrome.identity.getRedirectURL();
+      const fallbackRedirectUri = getFallbackRedirectURI();
+      const additionalInfo = error.message.includes(
+        "Authorization page could not be loaded"
+      )
+        ? `\n\nThis error often means the redirect URI is not properly configured in your Spotify app. Please ensure your Spotify app's redirect URI includes both:\n1. ${identityRedirectUri} (for Chrome Identity API)\n2. ${fallbackRedirectUri} (for tab-based fallback)`
+        : "";
+
+      return {
+        success: false,
+        error: error.message + additionalInfo,
+        identityRedirectUri: identityRedirectUri,
+        fallbackRedirectUri: fallbackRedirectUri,
+      };
     } finally {
       // Clean up temporary PKCE parameters
       await chrome.storage.local.remove(["oauth_code_verifier", "oauth_state"]);
@@ -111,13 +340,21 @@
   async function exchange_code_for_token(
     client_id,
     authorization_code,
-    code_verifier
+    code_verifier,
+    redirect_uri
   ) {
+    console.log("Token exchange parameters:", {
+      client_id,
+      code: authorization_code ? "[PRESENT]" : null,
+      code_verifier: code_verifier ? "[PRESENT]" : null,
+      redirect_uri,
+    });
+
     const token_data = {
       client_id: client_id,
       grant_type: "authorization_code",
       code: authorization_code,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirect_uri,
       code_verifier: code_verifier,
     };
 
@@ -129,8 +366,19 @@
       body: new URLSearchParams(token_data).toString(),
     });
 
+    console.log("Token exchange response status:", response.status);
+
     if (!response.ok) {
-      const error_data = await response.json();
+      let error_data;
+      try {
+        error_data = await response.json();
+        console.error("Token exchange error data:", error_data);
+      } catch (parse_error) {
+        console.error("Failed to parse error response:", parse_error);
+        error_data = {
+          error_description: `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
       throw new Error(error_data.error_description || "Token exchange failed");
     }
 

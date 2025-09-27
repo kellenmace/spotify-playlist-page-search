@@ -114,17 +114,42 @@
       this.elements.auth_button.textContent = "Connecting...";
 
       try {
+        console.log("Sending OAuth initiation message to background script...");
         // Send message to background script to initiate OAuth flow
         const response = await chrome.runtime.sendMessage({
           action: "initiate_oauth",
           client_id: client_id,
         });
 
-        if (response.success) {
-          this.has_access_token = true;
+        console.log("Received response from background script:", response);
+
+        if (response && response.success) {
+          console.log("OAuth flow successful, verifying token storage...");
+
+          // Verify that the token was actually stored
+          const stored_result = await chrome.storage.local.get([
+            "spotify_access_token",
+          ]);
+          console.log("Stored token check:", {
+            has_token: !!stored_result.spotify_access_token,
+          });
+
+          this.has_access_token = !!stored_result.spotify_access_token;
           this.update_ui_state();
+
+          if (!this.has_access_token) {
+            throw new Error(
+              "OAuth appeared successful but no access token was stored"
+            );
+          }
         } else {
-          throw new Error(response.error || "OAuth flow failed");
+          const error_msg =
+            response?.error || "OAuth flow failed - no error details provided";
+          const redirectUri =
+            response?.redirectUri || `chrome-extension://${chrome.runtime.id}/`;
+          console.error("OAuth flow failed:", error_msg);
+          console.error("Required redirect URI:", redirectUri);
+          throw new Error(error_msg);
         }
       } catch (error) {
         console.error("OAuth error:", error);
