@@ -211,7 +211,10 @@
             const new_songs = page_tracks.map((item) => ({
               id: item.track.id,
               name: item.track.name,
-              artists: item.track.artists.map((artist) => artist.name),
+              artists: item.track.artists.map((artist) => ({
+                name: artist.name,
+                url: artist.external_urls.spotify,
+              })),
               album: item.track.album.name,
               albumUrl: item.track.album.external_urls.spotify,
               albumImage: this.getSmallestAlbumImage(item.track.album.images),
@@ -242,7 +245,10 @@
           playlist_songs = tracks_data.map((item) => ({
             id: item.track.id,
             name: item.track.name,
-            artists: item.track.artists.map((artist) => artist.name),
+            artists: item.track.artists.map((artist) => ({
+              name: artist.name,
+              url: artist.external_urls.spotify,
+            })),
             album: item.track.album.name,
             albumUrl: item.track.album.external_urls.spotify,
             albumImage: this.getSmallestAlbumImage(item.track.album.images),
@@ -317,7 +323,11 @@
         .filter((term) => term.length > 0);
 
       return playlist_songs.filter((song) => {
-        const searchable_text = [song.name, ...song.artists, song.album]
+        const searchable_text = [
+          song.name,
+          ...song.artists.map((artist) => artist.name),
+          song.album,
+        ]
           .join(" ")
           .toLowerCase();
 
@@ -357,9 +367,18 @@
             <div class="spotify-playlist-search-song-title">${this.escape_html(
               song.name
             )}</div>
-            <div class="spotify-playlist-search-song-artist">${this.escape_html(
-              song.artists.join(", ")
-            )}</div>
+            <div class="spotify-playlist-search-song-artist">
+              ${song.artists
+                .map(
+                  (artist) =>
+                    `<a href="${this.escape_html(
+                      artist.url
+                    )}" target="_blank" rel="noopener noreferrer">${this.escape_html(
+                      artist.name
+                    )}</a>`
+                )
+                .join(", ")}
+            </div>
           </div>
           <div class="spotify-playlist-search-song-album">
             <a href="${this.escape_html(
