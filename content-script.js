@@ -1,4 +1,4 @@
-// Spotify Web Player Playlist Search Content Script
+// Spotify Playlist Plage Search - Content Script
 
 (function () {
   "use strict";
