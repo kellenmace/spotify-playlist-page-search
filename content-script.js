@@ -60,10 +60,7 @@
 
       if (target_element) {
         const search_button = this.create_search_button();
-        target_element.parentNode.insertBefore(
-          search_button,
-          target_element
-        );
+        target_element.parentNode.insertBefore(search_button, target_element);
       } else {
         // Retry after a short delay if elements aren't ready
         setTimeout(() => this.inject_search_button(), 1000);
