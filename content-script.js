@@ -504,32 +504,40 @@
       try {
         // Look for the play button within the track row
         // The button has aria-label that includes "Play [track name] by [artist]"
-        const playButton = trackElement.querySelector('button[aria-label*="Play"]');
-        
+        const playButton = trackElement.querySelector(
+          'button[aria-label*="Play"]'
+        );
+
         if (playButton) {
-          console.log('Found play button, clicking to start playback for track:', trackId);
+          console.log(
+            "Found play button, clicking to start playback for track:",
+            trackId
+          );
           playButton.click();
         } else {
           // Fallback: try other selectors for the play button
           const fallbackSelectors = [
-            'button.y3wrMu2sPRR2DCdEpWlg', // The specific class from markup
+            "button.y3wrMu2sPRR2DCdEpWlg", // The specific class from markup
             'button[tabindex="-1"]', // Play buttons often have tabindex="-1"
             'button svg[viewBox="0 0 24 24"]', // Look for button containing the play icon SVG
           ];
-          
+
           for (const selector of fallbackSelectors) {
             const button = trackElement.querySelector(selector);
-            if (button && button.getAttribute('aria-label')?.includes('Play')) {
-              console.log('Found play button via fallback selector, clicking for track:', trackId);
+            if (button && button.getAttribute("aria-label")?.includes("Play")) {
+              console.log(
+                "Found play button via fallback selector, clicking for track:",
+                trackId
+              );
               button.click();
               return;
             }
           }
-          
-          console.warn('Could not find play button for track:', trackId);
+
+          console.warn("Could not find play button for track:", trackId);
         }
       } catch (error) {
-        console.error('Error clicking play button:', error);
+        console.error("Error clicking play button:", error);
       }
     },
 
