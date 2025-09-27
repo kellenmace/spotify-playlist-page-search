@@ -361,15 +361,13 @@
             )}" class="spotify-playlist-search-album-image">`
           : '<div class="spotify-playlist-search-album-image-placeholder"></div>';
 
-        const trackUrl = `https://open.spotify.com/track/${song.id}`;
-
         song_element.innerHTML = `
           ${albumImageHtml}
           <div class="spotify-playlist-search-song-info">
             <div class="spotify-playlist-search-song-title">
-              <a href="${this.escape_html(
-                trackUrl
-              )}" target="_blank" rel="noopener noreferrer">
+              <a href="#" class="spotify-playlist-search-track-link" data-track-id="${this.escape_html(
+                song.id
+              )}">
                 ${this.escape_html(song.name)}
               </a>
             </div>
@@ -379,17 +377,37 @@
                   (artist) =>
                     `<a href="${this.escape_html(
                       artist.url
-                    )}">${this.escape_html(artist.name)}</a>`
+                    )}" target="_blank" rel="noopener noreferrer">${this.escape_html(
+                      artist.name
+                    )}</a>`
                 )
                 .join(", ")}
             </div>
           </div>
           <div class="spotify-playlist-search-song-album">
-            <a href="${this.escape_html(song.albumUrl)}">
+            <a href="${this.escape_html(
+              song.albumUrl
+            )}" target="_blank" rel="noopener noreferrer">
               ${this.escape_html(song.album)}
             </a>
           </div>
         `;
+
+        // Add click handler for track title
+        const trackLink = song_element.querySelector(
+          ".spotify-playlist-search-track-link"
+        );
+        if (trackLink) {
+          trackLink.addEventListener("click", (event) => {
+            event.preventDefault();
+            const trackId = event.target.getAttribute("data-track-id");
+            this.scrollToAndHighlightTrack(trackId);
+            // Close the modal after a short delay
+            setTimeout(() => {
+              search_modal.close();
+            }, 300);
+          });
+        }
 
         song_list.appendChild(song_element);
       });
@@ -428,6 +446,343 @@
       return images.reduce((smallest, current) => {
         return current.width < smallest.width ? current : smallest;
       }).url;
+    },
+
+    async scrollToAndHighlightTrack(trackId) {
+      try {
+        // First, try to find the track in the current DOM
+        let trackElement = await this.waitForTrackAndFind(trackId, 3000); // Increased from 2000ms
+
+        if (!trackElement) {
+          // Track not found in DOM, need to scroll to load it
+          console.log(
+            "Track not in current DOM, attempting to scroll to load it..."
+          );
+          await this.scrollToLoadTrack(trackId);
+
+          // Now try to find it again with a much longer timeout for large playlists
+          trackElement = await this.waitForTrackAndFind(trackId, 30000); // Increased from 10000ms to 30000ms
+        }
+
+        if (trackElement) {
+          // Scroll to the track
+          trackElement.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+
+          // Add highlight effect
+          trackElement.style.outline = "3px solid #1DB954";
+          trackElement.style.transition = "outline 200ms ease-in-out";
+
+          // Remove highlight after a few seconds
+          setTimeout(() => {
+            trackElement.style.outline = "";
+          }, 3000);
+
+          console.log(
+            "Successfully scrolled to and highlighted track:",
+            trackId
+          );
+        } else {
+          console.warn(
+            "Track not found in DOM after scrolling attempts:",
+            trackId
+          );
+        }
+      } catch (error) {
+        console.warn("Could not find/highlight track:", error);
+      }
+    },
+
+    /**
+     * Robustly scrolls the playlist container until the track is found in the DOM.
+     * Will keep scrolling in small increments until the track is loaded or a max number of attempts is reached.
+     */
+    async scrollToLoadTrack(trackId) {
+      const trackIndex = playlist_songs.findIndex(
+        (song) => song.id === trackId
+      );
+      if (trackIndex === -1) {
+        console.warn("Track not found in playlist data:", trackId);
+        return;
+      }
+      const playlistContainer = this.findPlaylistContainer();
+      if (!playlistContainer) {
+        console.warn("Could not find playlist container for scrolling");
+        return;
+      }
+      const rowHeight = 56;
+      const headerHeight = 64;
+      const maxAttempts = 40; // up to ~40 scrolls (should be enough for huge playlists)
+      let attempt = 0;
+      let found = false;
+      let lastScrollTop = -1;
+      let direction = 1; // always scroll down for now
+      while (attempt < maxAttempts) {
+        // Calculate where we want to scroll
+        const targetScrollPosition =
+          headerHeight + (trackIndex + 1) * rowHeight;
+        playlistContainer.scrollTo({
+          top: targetScrollPosition,
+          behavior: "auto",
+        });
+        // Wait for DOM to update
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        // Check if the track is now present
+        const trackLinks = document.querySelectorAll(
+          `a[href="/track/${trackId}"]`
+        );
+        for (const link of trackLinks) {
+          const row =
+            link.closest('[data-testid="tracklist-row"]') ||
+            link.closest('[role="row"]');
+          if (row) {
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+        // If not found, nudge the scroll position a bit further (in case virtualization is lagging)
+        playlistContainer.scrollBy({
+          top: direction * rowHeight * 3,
+          behavior: "auto",
+        });
+        // If the scroll position isn't changing, break to avoid infinite loop
+        if (playlistContainer.scrollTop === lastScrollTop) break;
+        lastScrollTop = playlistContainer.scrollTop;
+        attempt++;
+      }
+      if (!found) {
+        console.warn(
+          "Track not found after repeated scroll attempts:",
+          trackId
+        );
+      }
+    },
+
+    findPlaylistContainer() {
+      // Try the overlayscrollbars viewport first
+      const overlayViewport = document.querySelector(
+        "[data-overlayscrollbars-viewport]"
+      );
+      if (
+        overlayViewport &&
+        overlayViewport.scrollHeight > overlayViewport.clientHeight
+      ) {
+        console.log("Using overlayscrollbars viewport as scroll container");
+        return overlayViewport;
+      }
+
+      // Try other specific selectors
+      const selectors = [
+        ".main-view-container__scroll-node",
+        ".main-view-container .os-viewport",
+        '[role="grid"]',
+        '[data-testid="playlist-tracklist"]',
+      ];
+
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.scrollHeight > element.clientHeight) {
+          console.log("Found scrollable element:", selector);
+          return element;
+        }
+      }
+
+      // More aggressive fallback: find ANY scrollable element in the main content area
+      const mainSelectors = [
+        ".main-view-container",
+        ".Root__main-view",
+        "main",
+        '[role="main"]',
+        "#main",
+      ];
+
+      for (const mainSelector of mainSelectors) {
+        const mainContent = document.querySelector(mainSelector);
+        if (mainContent) {
+          // Check if the main content itself is scrollable
+          if (
+            mainContent.scrollHeight > mainContent.clientHeight &&
+            mainContent.clientHeight > 200
+          ) {
+            console.log(
+              "Using main content area as scroll container:",
+              mainSelector
+            );
+            return mainContent;
+          }
+
+          // Look for any scrollable child element
+          const allElements = mainContent.querySelectorAll("*");
+          for (const element of allElements) {
+            if (
+              element.scrollHeight > element.clientHeight &&
+              element.clientHeight > 300 && // Must be reasonably large
+              element.scrollHeight > element.clientHeight + 100
+            ) {
+              // Must have significant scroll content
+              console.log("Found fallback scrollable container");
+              return element;
+            }
+          }
+        }
+      }
+
+      // Last resort: use document.documentElement or document.body
+      if (
+        document.documentElement &&
+        document.documentElement.scrollHeight >
+          document.documentElement.clientHeight
+      ) {
+        console.log("Using document.documentElement as scroll container");
+        return document.documentElement;
+      }
+
+      if (
+        document.body &&
+        document.body.scrollHeight > document.body.clientHeight
+      ) {
+        console.log("Using document.body as scroll container");
+        return document.body;
+      }
+
+      console.warn("Could not find any playlist scroll container");
+      return null;
+    },
+
+    async waitForTrackAndFind(trackId, timeout = 15000) {
+      const start = Date.now();
+      const trackIndex = playlist_songs.findIndex(
+        (song) => song.id === trackId
+      );
+      const rowHeight = 56;
+      const headerHeight = 64;
+      const playlistContainer = this.findPlaylistContainer();
+
+      console.log(
+        "Starting track search for:",
+        trackId,
+        "at index:",
+        trackIndex
+      );
+      console.log(
+        "Using scroll container:",
+        playlistContainer ? "found" : "NOT FOUND"
+      );
+
+      if (!playlistContainer) {
+        // If we can't find a scroll container, just try to find the track as-is
+        console.warn(
+          "No scroll container found, attempting to find track without scrolling"
+        );
+        const trackLinks = document.querySelectorAll(
+          `a[href="/track/${trackId}"]`
+        );
+        for (const link of trackLinks) {
+          const row =
+            link.closest('[data-testid="tracklist-row"]') ||
+            link.closest('[role="row"]');
+          if (row) {
+            console.log("Found track without scrolling");
+            return row;
+          }
+        }
+        throw new Error("No scroll container found and track not visible");
+      }
+
+      let lastScrollTop = -1;
+      let attempt = 0;
+      const maxAttempts = Math.ceil(timeout / 500);
+
+      const findTrackElement = () => {
+        const trackLinks = document.querySelectorAll(
+          `a[href="/track/${trackId}"]`
+        );
+        console.log("Found", trackLinks.length, "track links for:", trackId);
+        for (const link of trackLinks) {
+          const row =
+            link.closest('[data-testid="tracklist-row"]') ||
+            link.closest('[role="row"]');
+          if (row) {
+            console.log("Found track row for:", trackId);
+            return row;
+          }
+        }
+        return null;
+      };
+
+      return new Promise((resolve, reject) => {
+        const interval = setInterval(() => {
+          let found = findTrackElement();
+          if (found) {
+            console.log("Successfully found track after", attempt, "attempts");
+            clearInterval(interval);
+            resolve(found);
+            return;
+          }
+
+          // If not found and we have container info, try scrolling
+          if (trackIndex !== -1) {
+            const targetScrollPosition =
+              headerHeight + (trackIndex + 1) * rowHeight;
+            const currentScroll = playlistContainer.scrollTop;
+
+            console.log(
+              "Attempt",
+              attempt,
+              "- Current scroll:",
+              currentScroll,
+              "Target:",
+              targetScrollPosition
+            );
+
+            // If we're not close to the target, scroll closer
+            if (
+              Math.abs(currentScroll - targetScrollPosition) >
+              rowHeight * 3
+            ) {
+              playlistContainer.scrollTo({
+                top: targetScrollPosition,
+                behavior: "auto",
+              });
+            } else {
+              // If we're close, try small nudges in both directions
+              const nudgeAmount =
+                attempt % 2 === 0 ? rowHeight * 2 : -rowHeight * 2;
+              playlistContainer.scrollBy({
+                top: nudgeAmount,
+                behavior: "auto",
+              });
+            }
+
+            // If the scroll position isn't changing, we might be stuck
+            if (Math.abs(playlistContainer.scrollTop - lastScrollTop) < 5) {
+              console.warn(
+                "Scroll position not changing, trying different approach"
+              );
+              // Try scrolling to beginning and then to target
+              if (attempt < maxAttempts / 2) {
+                playlistContainer.scrollTo({ top: 0, behavior: "auto" });
+              }
+            }
+            lastScrollTop = playlistContainer.scrollTop;
+          }
+
+          attempt++;
+          if (Date.now() - start > timeout || attempt > maxAttempts) {
+            console.error(
+              "Timeout after",
+              attempt,
+              "attempts. Final scroll position:",
+              playlistContainer.scrollTop
+            );
+            clearInterval(interval);
+            reject(new Error("Timeout finding track"));
+          }
+        }, 500);
+      });
     },
 
     escape_html(unsafe) {
