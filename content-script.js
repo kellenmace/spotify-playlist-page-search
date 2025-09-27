@@ -213,6 +213,7 @@
               name: item.track.name,
               artists: item.track.artists.map((artist) => artist.name),
               album: item.track.album.name,
+              albumImage: this.getSmallestAlbumImage(item.track.album.images),
             }));
 
             playlist_songs.push(...new_songs);
@@ -242,6 +243,7 @@
             name: item.track.name,
             artists: item.track.artists.map((artist) => artist.name),
             album: item.track.album.name,
+            albumImage: this.getSmallestAlbumImage(item.track.album.images),
           }));
 
           // Apply current search filter and render
@@ -293,7 +295,7 @@
 
         next_url = data.next;
       }
-
+      console.log({ all_tracks });
       return all_tracks;
     },
 
@@ -339,7 +341,16 @@
         const song_element = document.createElement("div");
         song_element.className = "spotify-playlist-search-song";
 
+        const albumImageHtml = song.albumImage
+          ? `<img src="${this.escape_html(
+              song.albumImage
+            )}" alt="${this.escape_html(
+              song.album
+            )}" class="spotify-playlist-search-album-image">`
+          : '<div class="spotify-playlist-search-album-image-placeholder"></div>';
+
         song_element.innerHTML = `
+          ${albumImageHtml}
           <div class="spotify-playlist-search-song-info">
             <div class="spotify-playlist-search-song-title">${this.escape_html(
               song.name
@@ -379,6 +390,17 @@
           Click the extension icon to authenticate.
         </div>
       `;
+    },
+
+    getSmallestAlbumImage(images) {
+      if (!images || images.length === 0) {
+        return null;
+      }
+
+      // Find the image with the smallest width
+      return images.reduce((smallest, current) => {
+        return current.width < smallest.width ? current : smallest;
+      }).url;
     },
 
     escape_html(unsafe) {

@@ -190,16 +190,42 @@
 /* Song item styles */
 .spotify-playlist-search-song {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 16px;
+  grid-template-columns: 48px 1fr auto;
+  gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid rgba(42, 42, 42, 0.5);
   transition: background-color 0.2s ease;
   cursor: default;
+  align-items: center;
 }
 
 .spotify-playlist-search-song:hover {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Album image styles */
+.spotify-playlist-search-album-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  background-color: #2a2a2a;
+}
+
+.spotify-playlist-search-album-image-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  background-color: #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spotify-playlist-search-album-image-placeholder::before {
+  content: "♪";
+  color: #a7a7a7;
+  font-size: 20px;
 }
 
 .spotify-playlist-search-song-info {
@@ -256,13 +282,18 @@
 
   .spotify-playlist-search-song {
     padding: 12px 16px;
-    grid-template-columns: 1fr;
+    grid-template-columns: 40px 1fr;
     gap: 8px;
   }
 
+  .spotify-playlist-search-album-image,
+  .spotify-playlist-search-album-image-placeholder {
+    width: 40px;
+    height: 40px;
+  }
+
   .spotify-playlist-search-song-album {
-    text-align: left;
-    font-size: 13px;
+    display: none; /* Hide album name on mobile to save space */
   }
 }
 
