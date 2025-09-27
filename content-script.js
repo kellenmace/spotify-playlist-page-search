@@ -7,6 +7,7 @@
   let current_playlist_id = null;
   let search_modal = null;
   let is_fetching = false;
+  let is_first_fetch = true;
 
   const playlist_search = {
     init() {
@@ -172,6 +173,13 @@
       return dialog;
     },
 
+    get_current_search_query() {
+      const search_input = search_modal?.querySelector(
+        ".spotify-playlist-search-input"
+      );
+      return search_input ? search_input.value.trim() : "";
+    },
+
     async load_playlist_songs() {
       if (!current_playlist_id) {
         this.show_error_state("Unable to get playlist information");
@@ -197,20 +205,50 @@
 
         const access_token = token_response.access_token;
 
-        // Fetch playlist tracks from Spotify API
-        const tracks_data = await this.fetch_playlist_tracks(
-          current_playlist_id,
-          access_token
-        );
+        if (is_first_fetch) {
+          // Progressive loading for first fetch - show songs as they're loaded
+          const onPageFetched = async (page_tracks) => {
+            const new_songs = page_tracks.map((item) => ({
+              id: item.track.id,
+              name: item.track.name,
+              artists: item.track.artists.map((artist) => artist.name),
+              album: item.track.album.name,
+            }));
 
-        playlist_songs = tracks_data.map((item) => ({
-          id: item.track.id,
-          name: item.track.name,
-          artists: item.track.artists.map((artist) => artist.name),
-          album: item.track.album.name,
-        }));
+            playlist_songs.push(...new_songs);
 
-        this.render_songs(playlist_songs);
+            // Apply current search filter and render
+            const current_query = this.get_current_search_query();
+            const filtered_songs = this.filter_songs(current_query);
+            this.render_songs(filtered_songs);
+          };
+
+          await this.fetch_playlist_tracks(
+            current_playlist_id,
+            access_token,
+            onPageFetched
+          );
+
+          is_first_fetch = false;
+        } else {
+          // Complete loading for subsequent fetches
+          const tracks_data = await this.fetch_playlist_tracks(
+            current_playlist_id,
+            access_token
+          );
+
+          playlist_songs = tracks_data.map((item) => ({
+            id: item.track.id,
+            name: item.track.name,
+            artists: item.track.artists.map((artist) => artist.name),
+            album: item.track.album.name,
+          }));
+
+          // Apply current search filter and render
+          const current_query = this.get_current_search_query();
+          const filtered_songs = this.filter_songs(current_query);
+          this.render_songs(filtered_songs);
+        }
       } catch (error) {
         console.error("Error loading playlist songs:", error);
         this.show_error_state("Unable to get playlist songs");
@@ -219,7 +257,11 @@
       }
     },
 
-    async fetch_playlist_tracks(playlist_id, access_token) {
+    async fetch_playlist_tracks(
+      playlist_id,
+      access_token,
+      onPageFetched = null
+    ) {
       const all_tracks = [];
       let next_url = `https://api.spotify.com/v1/playlists/${playlist_id}/tracks?limit=50`;
 
@@ -239,9 +281,16 @@
         }
 
         const data = await response.json();
-        all_tracks.push(
-          ...data.items.filter((item) => item.track && item.track.id)
+        const page_tracks = data.items.filter(
+          (item) => item.track && item.track.id
         );
+        all_tracks.push(...page_tracks);
+
+        // Call the callback with the page tracks if provided
+        if (onPageFetched) {
+          await onPageFetched(page_tracks);
+        }
+
         next_url = data.next;
       }
 
@@ -360,6 +409,7 @@
         // Clear previous state
         playlist_songs = [];
         current_playlist_id = null;
+        is_first_fetch = true; // Reset for new playlist
 
         // Close modal if open
         if (search_modal && search_modal.open) {
