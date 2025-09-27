@@ -327,8 +327,8 @@
       );
 
       if (songs.length === 0) {
-        content_area.innerHTML =
-          '<div class="spotify-playlist-search-empty">No songs found</div>';
+        const message = is_first_fetch ? "Loading songs..." : "No songs found";
+        content_area.innerHTML = `<div class="spotify-playlist-search-empty">${message}</div>`;
         return;
       }
 
