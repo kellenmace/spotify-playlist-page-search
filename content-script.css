@@ -233,6 +233,8 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0; /* Allows text truncation */
+  max-width: 100%; /* Ensures container doesn't exceed grid column */
+  overflow: hidden; /* Prevents content from breaking out */
 }
 
 .spotify-playlist-search-song-title {
@@ -261,6 +263,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 200px; /* Reasonable max width for album names */
+  min-width: 0; /* Allows shrinking when needed */
 }
 
 /* Responsive design */
@@ -290,6 +294,10 @@
   .spotify-playlist-search-album-image-placeholder {
     width: 40px;
     height: 40px;
+  }
+
+  .spotify-playlist-search-song-info {
+    max-width: calc(100vw - 80px); /* Account for padding and image width */
   }
 
   .spotify-playlist-search-song-album {
