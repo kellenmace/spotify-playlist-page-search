@@ -377,17 +377,13 @@
                   (artist) =>
                     `<a href="${this.escape_html(
                       artist.url
-                    )}" target="_blank" rel="noopener noreferrer">${this.escape_html(
-                      artist.name
-                    )}</a>`
+                    )}">${this.escape_html(artist.name)}</a>`
                 )
                 .join(", ")}
             </div>
           </div>
           <div class="spotify-playlist-search-song-album">
-            <a href="${this.escape_html(
-              song.albumUrl
-            )}" target="_blank" rel="noopener noreferrer">
+            <a href="${this.escape_html(song.albumUrl)}">
               ${this.escape_html(song.album)}
             </a>
           </div>
@@ -408,6 +404,22 @@
             }, 300);
           });
         }
+
+        // Add click handler for the entire song element
+        song_element.addEventListener("click", (event) => {
+          // Don't handle clicks if they're on links (let those handle themselves)
+          if (event.target.tagName === "A" || event.target.closest("a")) {
+            return;
+          }
+
+          event.preventDefault();
+          const trackId = song.id;
+          this.scrollToAndHighlightTrack(trackId);
+          // Close the modal after a short delay
+          setTimeout(() => {
+            search_modal.close();
+          }, 300);
+        });
 
         song_list.appendChild(song_element);
       });

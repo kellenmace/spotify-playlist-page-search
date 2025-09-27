@@ -195,7 +195,7 @@
   padding: 12px 24px;
   border-bottom: 1px solid rgba(42, 42, 42, 0.5);
   transition: background-color 0.2s ease;
-  cursor: default;
+  cursor: pointer;
   align-items: center;
 }
 
