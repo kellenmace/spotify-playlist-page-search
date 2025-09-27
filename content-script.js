@@ -213,6 +213,7 @@
               name: item.track.name,
               artists: item.track.artists.map((artist) => artist.name),
               album: item.track.album.name,
+              albumUrl: item.track.album.external_urls.spotify,
               albumImage: this.getSmallestAlbumImage(item.track.album.images),
             }));
 
@@ -243,6 +244,7 @@
             name: item.track.name,
             artists: item.track.artists.map((artist) => artist.name),
             album: item.track.album.name,
+            albumUrl: item.track.album.external_urls.spotify,
             albumImage: this.getSmallestAlbumImage(item.track.album.images),
           }));
 
@@ -359,9 +361,11 @@
               song.artists.join(", ")
             )}</div>
           </div>
-          <div class="spotify-playlist-search-song-album">${this.escape_html(
-            song.album
-          )}</div>
+          <div class="spotify-playlist-search-song-album">
+            <a href="${this.escape_html(song.albumUrl)}" target="_blank" rel="noopener noreferrer">
+              ${this.escape_html(song.album)}
+            </a>
+          </div>
         `;
 
         song_list.appendChild(song_element);
