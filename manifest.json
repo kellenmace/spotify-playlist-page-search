@@ -33,7 +33,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["test-oauth-fixed.html", "test-oauth.js"],
+      "resources": ["oauth-callback.html"],
       "matches": ["<all_urls>"]
     }
   ]

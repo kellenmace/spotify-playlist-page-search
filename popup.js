@@ -142,23 +142,88 @@
               "OAuth appeared successful but no access token was stored"
             );
           }
+
+          // Reload any open Spotify playlist pages to refresh authentication state
+          await this.refresh_spotify_pages();
+
+          // Show brief success message
+          this.show_temporary_message(
+            "Connected! Refreshing Spotify pages...",
+            2000
+          );
         } else {
           const error_msg =
             response?.error || "OAuth flow failed - no error details provided";
-          const redirectUri =
-            response?.redirectUri || `chrome-extension://${chrome.runtime.id}/`;
+          const identityRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
+          const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
+
           console.error("OAuth flow failed:", error_msg);
-          console.error("Required redirect URI:", redirectUri);
+          console.error("Required redirect URIs:");
+          console.error("1. Identity API:", identityRedirectUri);
+          console.error("2. Fallback:", fallbackRedirectUri);
+
           throw new Error(error_msg);
         }
       } catch (error) {
         console.error("OAuth error:", error);
-        const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
+        const identityRedirectUri = chrome.identity.getRedirectURL();
+        const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
+
+        console.log("=== SPOTIFY REDIRECT URI SETUP REQUIRED ===");
+        console.log("Go to: https://developer.spotify.com/dashboard");
+        console.log("Select your app → Settings → Redirect URIs");
+        console.log("Add BOTH of these URIs:");
+        console.log("1.", identityRedirectUri);
+        console.log("2.", fallbackRedirectUri);
+        console.log("==========================================");
+
         alert(
-          `Failed to connect to Spotify: ${error.message}\n\nPlease check the console for more details and ensure your redirect URI is set to:\n${redirectUri}`
+          `Failed to connect to Spotify: ${error.message}\n\nREQUIRED SETUP:\n\n` +
+            `Go to https://developer.spotify.com/dashboard\n` +
+            `Select your app → Settings → Redirect URIs\n` +
+            `Add BOTH of these redirect URIs:\n\n` +
+            `1. ${identityRedirectUri}\n` +
+            `2. ${fallbackRedirectUri}\n\n` +
+            `Then try connecting again.`
         );
       } finally {
         this.elements.auth_button.disabled = false;
+      }
+    },
+
+    async refresh_spotify_pages() {
+      try {
+        // Get all tabs that match Spotify playlist URLs
+        const tabs = await chrome.tabs.query({
+          url: "https://open.spotify.com/playlist/*",
+        });
+
+        console.log(`Found ${tabs.length} Spotify playlist tab(s) to refresh`);
+
+        // Reload each Spotify playlist tab
+        for (const tab of tabs) {
+          console.log(`Reloading Spotify tab: ${tab.url}`);
+          await chrome.tabs.reload(tab.id);
+        }
+
+        // Also send a message to any content scripts to update their auth state
+        for (const tab of tabs) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              action: "auth_state_changed",
+              authenticated: true,
+            });
+          } catch (error) {
+            // Tab might not have content script loaded yet, that's okay
+            console.log(
+              `Could not send message to tab ${tab.id}:`,
+              error.message
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Error refreshing Spotify pages:", error);
+        // Don't throw - this is a nice-to-have feature
       }
     },
 
@@ -171,9 +236,39 @@
         ]);
         this.has_access_token = false;
         this.update_ui_state();
+
+        // Notify content scripts about authentication state change
+        await this.notify_auth_state_change(false);
       } catch (error) {
         console.error("Error disconnecting:", error);
         alert("Failed to disconnect. Please try again.");
+      }
+    },
+
+    async notify_auth_state_change(authenticated) {
+      try {
+        // Get all tabs that match Spotify playlist URLs
+        const tabs = await chrome.tabs.query({
+          url: "https://open.spotify.com/playlist/*",
+        });
+
+        // Send message to any content scripts about auth state change
+        for (const tab of tabs) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              action: "auth_state_changed",
+              authenticated: authenticated,
+            });
+          } catch (error) {
+            // Tab might not have content script loaded yet, that's okay
+            console.log(
+              `Could not send auth state message to tab ${tab.id}:`,
+              error.message
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Error notifying auth state change:", error);
       }
     },
 
@@ -209,6 +304,15 @@
         this.elements.save_button.textContent = "Save Client ID";
         this.elements.save_button.disabled = false;
       }
+    },
+
+    show_temporary_message(message, duration = 2000) {
+      const original_text = this.elements.status_text.textContent;
+      this.elements.status_text.textContent = message;
+
+      setTimeout(() => {
+        this.elements.status_text.textContent = original_text;
+      }, duration);
     },
   };
 

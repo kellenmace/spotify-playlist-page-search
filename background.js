@@ -20,7 +20,7 @@
 
   // Fallback redirect URI for tab-based authentication
   function getFallbackRedirectURI() {
-    const redirectUri = `chrome-extension://${chrome.runtime.id}/oauth-callback`;
+    const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
     console.log("Using fallback redirect URI:", redirectUri);
     return redirectUri;
   }
@@ -186,7 +186,7 @@
     {
       url: [
         { urlPrefix: chrome.identity.getRedirectURL() },
-        { urlPrefix: `chrome-extension://${chrome.runtime.id}/oauth-callback` },
+        { urlPrefix: `chrome-extension://${chrome.runtime.id}/` },
       ],
     }
   );
@@ -307,6 +307,10 @@
         REDIRECT_URI
       );
       console.log("OAuth flow completed successfully");
+
+      // Reload any active Spotify playlist tabs to refresh authentication state
+      await reload_spotify_tabs();
+
       return { success: true };
     } catch (error) {
       console.error("OAuth flow error:", error);
@@ -450,6 +454,28 @@
         "spotify_token_expires_at",
       ]);
       throw error;
+    }
+  }
+
+  async function reload_spotify_tabs() {
+    try {
+      // Get all tabs that match Spotify playlist URLs
+      const tabs = await chrome.tabs.query({
+        url: "https://open.spotify.com/playlist/*",
+      });
+
+      console.log(
+        `Found ${tabs.length} Spotify playlist tab(s) to reload after OAuth`
+      );
+
+      // Reload each Spotify playlist tab
+      for (const tab of tabs) {
+        console.log(`Reloading Spotify tab after OAuth: ${tab.url}`);
+        await chrome.tabs.reload(tab.id);
+      }
+    } catch (error) {
+      console.error("Error reloading Spotify tabs after OAuth:", error);
+      // Don't throw - this is a nice-to-have feature
     }
   }
 

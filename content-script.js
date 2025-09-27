@@ -443,7 +443,7 @@
       );
       content_area.innerHTML = `
         <div class="spotify-playlist-search-error">
-          Please connect to Spotify first.<br>
+          Please connect to Spotify.<br>
           Click the extension icon to authenticate.
         </div>
       `;
@@ -885,4 +885,37 @@
   });
 
   observer.observe(document, { childList: true, subtree: true });
+
+  // Listen for authentication state changes from the popup
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "auth_state_changed") {
+      console.log("Authentication state changed:", request.authenticated);
+
+      if (request.authenticated && search_modal && search_modal.open) {
+        // If search modal is open and we just got authenticated, try to load songs
+        const content_area = search_modal.querySelector(
+          ".spotify-playlist-search-content"
+        );
+        if (
+          content_area &&
+          content_area.innerHTML.includes("Please connect to Spotify")
+        ) {
+          console.log(
+            "Re-attempting to load playlist songs after authentication"
+          );
+          // Close and reopen the modal to trigger a fresh load
+          search_modal.close();
+          setTimeout(() => {
+            playlist_search.open_search_modal();
+          }, 100);
+        }
+      } else if (!request.authenticated && search_modal && search_modal.open) {
+        // If search modal is open and we just disconnected, show auth error
+        console.log("User disconnected while search modal was open");
+        playlist_search.show_auth_error();
+      }
+
+      sendResponse({ success: true });
+    }
+  });
 })();
