@@ -62,7 +62,7 @@
         const search_button = this.create_search_button();
         target_element.parentNode.insertBefore(
           search_button,
-          target_element.nextSibling
+          target_element
         );
       } else {
         // Retry after a short delay if elements aren't ready

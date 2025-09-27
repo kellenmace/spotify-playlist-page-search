@@ -13,7 +13,6 @@
   color: #b3b3b3;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
-  margin-left: 8px;
 }
 
 .spotify-playlist-search-button:hover {
