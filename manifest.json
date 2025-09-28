@@ -17,6 +17,15 @@
     "https://api.spotify.com/*",
     "https://accounts.spotify.com/*"
   ],
+  "commands": {
+    "toggle-search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Toggle playlist search modal"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["https://open.spotify.com/playlist/*"],

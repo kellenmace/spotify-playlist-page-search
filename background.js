@@ -501,6 +501,29 @@
     return result.spotify_access_token;
   }
 
+  // Command listener for keyboard shortcuts
+  chrome.commands.onCommand.addListener(async (command) => {
+    console.log("Command received:", command);
+
+    if (command === "toggle-search") {
+      // Get the active tab
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+
+      console.log("Active tab:", tab?.url);
+
+      // Only send the command to Spotify playlist pages
+      if (tab && tab.url && tab.url.includes("open.spotify.com/playlist/")) {
+        console.log("Sending toggle-search message to content script");
+        chrome.tabs.sendMessage(tab.id, { action: "toggle-search" });
+      } else {
+        console.log("Not on a Spotify playlist page");
+      }
+    }
+  });
+
   // Message listener for popup and content script communication
   chrome.runtime.onMessage.addListener((request, sender, send_response) => {
     if (request.action === "initiate_oauth") {

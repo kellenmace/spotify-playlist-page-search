@@ -126,6 +126,24 @@
       await this.load_playlist_songs();
     },
 
+    async toggle_search_modal() {
+      console.log("toggle_search_modal called");
+
+      // Only work on playlist pages
+      if (!this.is_playlist_page()) {
+        console.log("Not on a playlist page");
+        return;
+      }
+
+      if (search_modal && search_modal.open) {
+        console.log("Closing search modal");
+        search_modal.close();
+      } else {
+        console.log("Opening search modal");
+        await this.open_search_modal();
+      }
+    },
+
     create_search_modal() {
       const dialog = document.createElement("dialog");
       dialog.className = "spotify-playlist-search-modal";
@@ -599,15 +617,6 @@
             block: "center",
           });
 
-          // Add highlight effect
-          trackElement.style.outline = "3px solid #1DB954";
-          trackElement.style.transition = "outline 200ms ease-in-out";
-
-          // Remove highlight after a few seconds
-          setTimeout(() => {
-            trackElement.style.outline = "";
-          }, 3000);
-
           console.log(
             "Successfully scrolled to and highlighted track:",
             trackId
@@ -1002,6 +1011,15 @@
 
   // Listen for authentication state changes from the popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("Content script received message:", request);
+
+    if (request.action === "toggle-search") {
+      console.log("Toggling search modal");
+      playlist_search.toggle_search_modal();
+      sendResponse({ success: true });
+      return;
+    }
+
     if (request.action === "auth_state_changed") {
       console.log("Authentication state changed:", request.authenticated);
 
