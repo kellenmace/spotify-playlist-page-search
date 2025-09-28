@@ -203,6 +203,11 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+.spotify-playlist-search-song.selected {
+  background-color: rgba(29, 185, 84, 0.15);
+  border: 1px solid #1db954;
+}
+
 /* Album image styles */
 .spotify-playlist-search-album-image {
   width: 48px;

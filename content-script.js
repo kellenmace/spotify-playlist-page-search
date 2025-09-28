@@ -1,4 +1,4 @@
-// Spotify Playlist Plage Search - Content Script
+// Spotify Playlist Page Search - Content Script
 
 (function () {
   "use strict";
@@ -8,6 +8,9 @@
   let search_modal = null;
   let is_fetching = false;
   let is_first_fetch = true;
+  let keyboard_navigation_enabled = false;
+  let selected_result_index = -1;
+  let filtered_songs = [];
 
   const playlist_search = {
     init() {
@@ -100,6 +103,9 @@
         if (search_input.value.trim()) {
           search_input.select();
         }
+
+        // Reset keyboard navigation state
+        this.reset_keyboard_navigation();
         return;
       }
 
@@ -112,6 +118,9 @@
         ".spotify-playlist-search-input"
       );
       search_input.focus();
+
+      // Reset keyboard navigation state
+      this.reset_keyboard_navigation();
 
       // Load playlist songs
       await this.load_playlist_songs();
@@ -172,10 +181,35 @@
         }
       });
 
-      // Handle escape key
+      // Handle escape key and arrow navigation
       dialog.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           dialog.close();
+          return;
+        }
+
+        // Only handle navigation keys when search input has focus or navigation is enabled
+        if (event.target === search_input || keyboard_navigation_enabled) {
+          switch (event.key) {
+            case "ArrowDown":
+              event.preventDefault();
+              this.navigate_to_next_result();
+              break;
+            case "ArrowUp":
+              event.preventDefault();
+              this.navigate_to_previous_result();
+              break;
+            case "Enter":
+              if (
+                selected_result_index >= 0 &&
+                selected_result_index < filtered_songs.length
+              ) {
+                event.preventDefault();
+                const selected_song = filtered_songs[selected_result_index];
+                this.select_song(selected_song.id);
+              }
+              break;
+          }
         }
       });
 
@@ -317,8 +351,75 @@
     },
 
     handle_search_input(query) {
-      const filtered_songs = this.filter_songs(query.trim());
+      filtered_songs = this.filter_songs(query.trim());
       this.render_songs(filtered_songs);
+      this.reset_keyboard_navigation();
+    },
+
+    reset_keyboard_navigation() {
+      keyboard_navigation_enabled = false;
+      selected_result_index = -1;
+      this.update_selection_display();
+    },
+
+    navigate_to_next_result() {
+      if (filtered_songs.length === 0) return;
+
+      keyboard_navigation_enabled = true;
+      selected_result_index =
+        (selected_result_index + 1) % filtered_songs.length;
+      this.update_selection_display();
+      this.scroll_selected_into_view();
+    },
+
+    navigate_to_previous_result() {
+      if (filtered_songs.length === 0) return;
+
+      keyboard_navigation_enabled = true;
+      selected_result_index =
+        selected_result_index <= 0
+          ? filtered_songs.length - 1
+          : selected_result_index - 1;
+      this.update_selection_display();
+      this.scroll_selected_into_view();
+    },
+
+    update_selection_display() {
+      const song_elements = search_modal.querySelectorAll(
+        ".spotify-playlist-search-song"
+      );
+      song_elements.forEach((element, index) => {
+        if (index === selected_result_index) {
+          element.classList.add("selected");
+        } else {
+          element.classList.remove("selected");
+        }
+      });
+    },
+
+    scroll_selected_into_view() {
+      if (selected_result_index < 0) return;
+
+      const song_elements = search_modal.querySelectorAll(
+        ".spotify-playlist-search-song"
+      );
+      const selected_element = song_elements[selected_result_index];
+
+      if (selected_element) {
+        selected_element.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
+    },
+
+    select_song(track_id) {
+      this.scrollToAndHighlightTrack(track_id);
+      // Close the modal after a short delay
+      setTimeout(() => {
+        search_modal.close();
+      }, 300);
     },
 
     filter_songs(query) {
@@ -345,6 +446,7 @@
     },
 
     render_songs(songs) {
+      filtered_songs = songs; // Store for keyboard navigation
       const content_area = search_modal.querySelector(
         ".spotify-playlist-search-content"
       );
@@ -352,6 +454,7 @@
       if (songs.length === 0) {
         const message = is_first_fetch ? "Loading songs..." : "No songs found";
         content_area.innerHTML = `<div class="spotify-playlist-search-empty">${message}</div>`;
+        this.reset_keyboard_navigation();
         return;
       }
 
@@ -435,6 +538,9 @@
 
       content_area.innerHTML = "";
       content_area.appendChild(song_list);
+
+      // Reset keyboard navigation when new results are rendered
+      this.reset_keyboard_navigation();
     },
 
     show_error_state(message) {
@@ -877,6 +983,9 @@
         playlist_songs = [];
         current_playlist_id = null;
         is_first_fetch = true; // Reset for new playlist
+        filtered_songs = [];
+        keyboard_navigation_enabled = false;
+        selected_result_index = -1;
 
         // Close modal if open
         if (search_modal && search_modal.open) {
