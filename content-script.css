@@ -257,7 +257,7 @@
 }
 
 .spotify-playlist-search-song-artist a {
-  color: var(--text-subdued, #b3b3b3);
+  color: var(--text-subdued, #b3b3b3) !important;
 }
 
 .spotify-playlist-search-song-album {

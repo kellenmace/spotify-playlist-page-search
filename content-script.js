@@ -91,6 +91,15 @@
     async open_search_modal() {
       if (search_modal) {
         search_modal.showModal();
+
+        // Focus and highlight existing text in the search input
+        const search_input = search_modal.querySelector(
+          ".spotify-playlist-search-input"
+        );
+        search_input.focus();
+        if (search_input.value.trim()) {
+          search_input.select();
+        }
         return;
       }
 
