@@ -16,6 +16,7 @@
     init() {
       if (this.is_playlist_page()) {
         this.inject_search_button();
+        this.inject_jump_to_playing_button();
         this.extract_playlist_id();
       }
     },
@@ -37,11 +38,19 @@
 
     inject_search_button() {
       // Remove existing button if it exists
-      const existing_button = document.querySelector(
+      const existing_search_button = document.querySelector(
         ".spotify-playlist-search-button"
       );
-      if (existing_button) {
-        existing_button.remove();
+      if (existing_search_button) {
+        existing_search_button.remove();
+      }
+
+      // Also remove existing jump button
+      const existing_jump_button = document.querySelector(
+        ".spotify-jump-to-playing-button"
+      );
+      if (existing_jump_button) {
+        existing_jump_button.remove();
       }
 
       // Try to find the more button first
@@ -86,6 +95,61 @@
         event.preventDefault();
         event.stopPropagation();
         this.open_search_modal();
+      });
+
+      return button;
+    },
+
+    inject_jump_to_playing_button() {
+      // Remove existing button if it exists
+      const existing_button = document.querySelector(
+        ".spotify-jump-to-playing-button"
+      );
+      if (existing_button) {
+        existing_button.remove();
+      }
+
+      // Find the target element (control-button-npv)
+      const target_element = document.querySelector(
+        'button[data-testid="control-button-npv"]'
+      );
+
+      if (target_element) {
+        const jump_button = this.create_jump_to_playing_button();
+        target_element.parentNode.insertBefore(jump_button, target_element);
+      } else {
+        // Retry after a short delay if elements aren't ready
+        setTimeout(() => this.inject_jump_to_playing_button(), 1000);
+      }
+    },
+
+    create_jump_to_playing_button() {
+      const button = document.createElement("button");
+      button.className =
+        "spotify-jump-to-playing-button Button-sc-1dqy6lx-0 fprjoI e-91000-overflow-wrap-anywhere e-91000-button-tertiary--icon-only pJ7RQa2Lqdi9JOvfKGAA";
+      button.setAttribute("title", "Jump to playing song");
+      button.setAttribute("aria-label", "Jump to playing song");
+      button.setAttribute("data-encore-id", "buttonTertiary");
+      button.innerHTML = `
+        <span aria-hidden="true" class="e-91000-button__icon-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="16" height="16" role="img" aria-label="Playlist icon" class="e-91000-icon e-91000-baseline" style="--encore-icon-height: var(--encore-graphic-size-decorative-smaller); --encore-icon-width: var(--encore-graphic-size-decorative-smaller);">
+            <!-- Top line -->
+            <rect x="100" y="120" width="400" height="50" fill="currentColor"/>
+            <!-- Middle row -->
+            <!-- Right-pointing triangle, vertically centered between top and bottom -->
+            <polygon points="100,235 100,365 220,300" fill="currentColor"/>
+            <!-- Middle line -->
+            <rect x="250" y="275" width="250" height="50" fill="currentColor"/>
+            <!-- Bottom line -->
+            <rect x="100" y="430" width="400" height="50" fill="currentColor"/>
+          </svg>
+        </span>
+      `;
+
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.jump_to_currently_playing_track();
       });
 
       return button;
@@ -961,6 +1025,104 @@
           }
         }, 500);
       });
+    },
+
+    async jump_to_currently_playing_track() {
+      try {
+        const playing_track_element = await this.find_currently_playing_track();
+
+        if (playing_track_element) {
+          // Scroll the playing track into view
+          playing_track_element.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+
+          console.log("Successfully jumped to currently playing track");
+        } else {
+          console.log("No currently playing track found in playlist");
+        }
+      } catch (error) {
+        console.warn("Could not jump to currently playing track:", error);
+      }
+    },
+
+    async find_currently_playing_track() {
+      // First, try to find the track in the current DOM
+      let playing_element = this.find_playing_track_in_dom();
+
+      if (playing_element) {
+        return playing_element;
+      }
+
+      // If not found, start from top and scroll down quickly
+      const playlist_container = this.findPlaylistContainer();
+      if (!playlist_container) {
+        console.warn("Could not find playlist container for scrolling");
+        return null;
+      }
+
+      // Start at the top of the playlist
+      playlist_container.scrollTo({
+        top: 0,
+        behavior: "auto",
+      });
+
+      // Wait for initial load
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Check if it's at the top
+      playing_element = this.find_playing_track_in_dom();
+      if (playing_element) {
+        return playing_element;
+      }
+
+      // Get scroll parameters
+      const total_height = playlist_container.scrollHeight;
+      const viewport_height = playlist_container.clientHeight;
+      const max_scroll = total_height - viewport_height;
+
+      // Scroll down in larger increments for speed
+      const scroll_increment = viewport_height * 0.8; // Scroll 80% of viewport at a time
+      let current_scroll = 0;
+
+      while (current_scroll < max_scroll) {
+        current_scroll = Math.min(
+          current_scroll + scroll_increment,
+          max_scroll
+        );
+
+        playlist_container.scrollTo({
+          top: current_scroll,
+          behavior: "auto",
+        });
+
+        // Shorter wait time for faster scanning
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        playing_element = this.find_playing_track_in_dom();
+        if (playing_element) {
+          return playing_element;
+        }
+      }
+
+      return null;
+    },
+
+    find_playing_track_in_dom() {
+      // Look for a button with aria-label="Pause" within tracklist rows
+      const pause_buttons = document.querySelectorAll(
+        'div[data-testid="tracklist-row"] button[aria-label="Pause"]'
+      );
+
+      for (const button of pause_buttons) {
+        const row = button.closest('div[role="row"]');
+        if (row) {
+          return row;
+        }
+      }
+
+      return null;
     },
 
     escape_html(unsafe) {
