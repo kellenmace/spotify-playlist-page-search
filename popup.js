@@ -69,7 +69,9 @@
         console.log("Stored data loaded:", {
           has_client_id: !!result.spotify_client_id,
           has_access_token: this.has_access_token,
-          access_token_length: result.spotify_access_token ? result.spotify_access_token.length : 0,
+          access_token_length: result.spotify_access_token
+            ? result.spotify_access_token.length
+            : 0,
           has_refresh_token: !!result.spotify_refresh_token,
           expires_at: result.spotify_token_expires_at,
           current_time: Date.now(),
