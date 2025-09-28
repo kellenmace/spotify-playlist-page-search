@@ -14,14 +14,12 @@
   // Use the proper redirect URI format for Chrome Identity API
   function getRedirectURI() {
     const redirectUri = chrome.identity.getRedirectURL();
-    console.log("Using redirect URI for Spotify OAuth:", redirectUri);
     return redirectUri;
   }
 
   // Fallback redirect URI for tab-based authentication
   function getFallbackRedirectURI() {
     const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
-    console.log("Using fallback redirect URI:", redirectUri);
     return redirectUri;
   }
 
@@ -46,7 +44,6 @@
 
   // Alternative method when launchWebAuthFlow fails
   async function openAuthPageInTab(client_id, code_challenge, state) {
-    console.log("Using fallback authentication method (new tab)");
 
     // Create a promise that will be resolved when the auth flow completes
     if (pendingAuthFlow) {
@@ -86,12 +83,9 @@
     });
 
     const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
-    console.log("Fallback authorization URL:", auth_url);
-    console.log("Please complete authorization in the new tab that will open");
 
     // Open the auth page in a new tab
     const tab = await chrome.tabs.create({ url: auth_url });
-    console.log("Opened OAuth tab with ID:", tab.id);
 
     // The promise will be resolved by the onBeforeNavigate listener when it detects the redirect
     return flowPromise;
@@ -104,7 +98,6 @@
       const identityRedirectUri = chrome.identity.getRedirectURL();
       const fallbackRedirectUri = getFallbackRedirectURI();
 
-      console.log("Navigation detected:", {
         url: details.url,
         frameId: details.frameId,
         identityRedirectUri,
@@ -119,7 +112,6 @@
           details.url.startsWith(fallbackRedirectUri))
       ) {
         try {
-          console.log("Intercepted OAuth redirect navigation to:", details.url);
 
           // Extract parameters from the URL (check both search params and hash params)
           const url = new URL(details.url);
@@ -135,7 +127,6 @@
           const state = params.get("state");
           const error = params.get("error");
 
-          console.log("Extracted OAuth params:", {
             code: code ? "[PRESENT]" : null,
             state,
             error,
@@ -143,7 +134,6 @@
 
           // Find and resolve the pending auth flow
           if (pendingAuthFlow) {
-            console.log("Found pending auth flow, resolving...");
             if (error) {
               console.error("OAuth error detected:", error);
               pendingAuthFlow.reject(new Error(`OAuth error: ${error}`));
@@ -159,7 +149,6 @@
               });
               pendingAuthFlow.reject(new Error("State parameter mismatch"));
             } else {
-              console.log("OAuth flow successful, resolving with code");
               pendingAuthFlow.resolve({ code, state });
             }
 
@@ -167,7 +156,6 @@
             pendingAuthFlow = null;
 
             // Close the tab
-            console.log("Closing OAuth tab:", details.tabId);
             chrome.tabs.remove(details.tabId);
           } else {
             console.warn(
@@ -194,21 +182,14 @@
   // OAuth flow functions
   async function initiate_oauth_flow(client_id) {
     try {
-      console.log("Starting OAuth flow with client ID:", client_id);
 
       // Get the redirect URI from Chrome Identity API
       let REDIRECT_URI = getRedirectURI();
-      console.log("Using redirect URI:", REDIRECT_URI);
 
       // Log both URIs for easy copy/paste to Spotify settings
       const fallbackURI = getFallbackRedirectURI();
-      console.log("=== SPOTIFY APP REDIRECT URIS NEEDED ===");
-      console.log("1. Primary (Identity API):", REDIRECT_URI);
-      console.log("2. Fallback (Tab-based):", fallbackURI);
-      console.log(
         "Add both URIs to https://developer.spotify.com/dashboard → Your App → Settings → Redirect URIs"
       );
-      console.log("=========================================");
 
       // Validate client ID
       if (!client_id || client_id.trim() === "") {
@@ -239,11 +220,8 @@
       });
 
       const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
-      console.log("Authorization URL:", auth_url);
-      console.log("Using redirect URI:", REDIRECT_URI);
 
       // Test if the auth URL is accessible
-      console.log("Auth URL components:", {
         baseUrl: SPOTIFY_AUTHORIZE_URL,
         params: Object.fromEntries(auth_params.entries()),
       });
@@ -254,12 +232,10 @@
       let returned_state;
       let error_param;
       try {
-        console.log("Attempting Chrome Identity API...");
         redirect_url = await chrome.identity.launchWebAuthFlow({
           url: auth_url,
           interactive: true,
         });
-        console.log("Received redirect URL:", redirect_url);
         if (redirect_url) {
           const parsed_url = new URL(redirect_url);
           const url_params = new URLSearchParams(parsed_url.search);
@@ -270,7 +246,6 @@
       } catch (identity_error) {
         console.error("Chrome Identity API failed:", identity_error);
         // Fallback to tab-based authentication
-        console.log("Falling back to tab-based authentication...");
         try {
           const result = await openAuthPageInTab(
             client_id,
@@ -299,14 +274,12 @@
         throw new Error("State parameter mismatch");
       }
       // Exchange authorization code for access token
-      console.log("Exchanging authorization code for access token...");
       await exchange_code_for_token(
         client_id,
         authorization_code,
         code_verifier,
         REDIRECT_URI
       );
-      console.log("OAuth flow completed successfully");
 
       // Reload any active Spotify playlist tabs to refresh authentication state
       await reload_spotify_tabs();
@@ -347,7 +320,6 @@
     code_verifier,
     redirect_uri
   ) {
-    console.log("Token exchange parameters:", {
       client_id,
       code: authorization_code ? "[PRESENT]" : null,
       code_verifier: code_verifier ? "[PRESENT]" : null,
@@ -370,7 +342,6 @@
       body: new URLSearchParams(token_data).toString(),
     });
 
-    console.log("Token exchange response status:", response.status);
 
     if (!response.ok) {
       let error_data;
@@ -464,13 +435,11 @@
         url: "https://open.spotify.com/playlist/*",
       });
 
-      console.log(
         `Found ${tabs.length} Spotify playlist tab(s) to reload after OAuth`
       );
 
       // Reload each Spotify playlist tab
       for (const tab of tabs) {
-        console.log(`Reloading Spotify tab after OAuth: ${tab.url}`);
         await chrome.tabs.reload(tab.id);
       }
     } catch (error) {
@@ -503,7 +472,6 @@
 
   // Command listener for keyboard shortcuts
   chrome.commands.onCommand.addListener(async (command) => {
-    console.log("Command received:", command);
 
     if (command === "toggle-search") {
       // Get the active tab
@@ -512,14 +480,11 @@
         currentWindow: true,
       });
 
-      console.log("Active tab:", tab?.url);
 
       // Only send the command to Spotify playlist pages
       if (tab && tab.url && tab.url.includes("open.spotify.com/playlist/")) {
-        console.log("Sending toggle-search message to content script");
         chrome.tabs.sendMessage(tab.id, { action: "toggle-search" });
       } else {
-        console.log("Not on a Spotify playlist page");
       }
     }
   });

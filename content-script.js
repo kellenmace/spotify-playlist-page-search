@@ -183,13 +183,9 @@
     },
 
     async toggle_search_modal() {
-      console.log("toggle_search_modal called");
-
       if (search_modal && search_modal.open) {
-        console.log("Closing search modal");
         search_modal.close();
       } else {
-        console.log("Opening search modal");
         await this.open_search_modal();
       }
     },
@@ -414,7 +410,7 @@
 
         next_url = data.next;
       }
-      console.log({ all_tracks });
+
       return all_tracks;
     },
 
@@ -650,9 +646,6 @@
 
         if (!trackElement) {
           // Track not found in DOM, need to scroll to load it
-          console.log(
-            "Track not in current DOM, attempting to scroll to load it..."
-          );
           await this.scrollToLoadTrack(trackId);
 
           trackElement = await this.waitForTrackAndFind(trackId, 30000);
@@ -666,16 +659,6 @@
             behavior: "smooth",
             block: "center",
           });
-
-          console.log(
-            "Successfully scrolled to and highlighted track:",
-            trackId
-          );
-        } else {
-          console.warn(
-            "Track not found in DOM after scrolling attempts:",
-            trackId
-          );
         }
       } catch (error) {
         console.warn("Could not find/highlight track:", error);
@@ -691,10 +674,6 @@
         );
 
         if (playButton) {
-          console.log(
-            "Found play button, clicking to start playback for track:",
-            trackId
-          );
           playButton.click();
         } else {
           // Fallback: try other selectors for the play button
@@ -707,10 +686,6 @@
           for (const selector of fallbackSelectors) {
             const button = trackElement.querySelector(selector);
             if (button && button.getAttribute("aria-label")?.includes("Play")) {
-              console.log(
-                "Found play button via fallback selector, clicking for track:",
-                trackId
-              );
               button.click();
               return;
             }
@@ -798,7 +773,6 @@
         overlayViewport &&
         overlayViewport.scrollHeight > overlayViewport.clientHeight
       ) {
-        console.log("Using overlayscrollbars viewport as scroll container");
         return overlayViewport;
       }
 
@@ -813,7 +787,6 @@
       for (const selector of selectors) {
         const element = document.querySelector(selector);
         if (element && element.scrollHeight > element.clientHeight) {
-          console.log("Found scrollable element:", selector);
           return element;
         }
       }
@@ -835,10 +808,6 @@
             mainContent.scrollHeight > mainContent.clientHeight &&
             mainContent.clientHeight > 200
           ) {
-            console.log(
-              "Using main content area as scroll container:",
-              mainSelector
-            );
             return mainContent;
           }
 
@@ -851,7 +820,6 @@
               element.scrollHeight > element.clientHeight + 100
             ) {
               // Must have significant scroll content
-              console.log("Found fallback scrollable container");
               return element;
             }
           }
@@ -864,7 +832,6 @@
         document.documentElement.scrollHeight >
           document.documentElement.clientHeight
       ) {
-        console.log("Using document.documentElement as scroll container");
         return document.documentElement;
       }
 
@@ -872,7 +839,6 @@
         document.body &&
         document.body.scrollHeight > document.body.clientHeight
       ) {
-        console.log("Using document.body as scroll container");
         return document.body;
       }
 
@@ -889,17 +855,6 @@
       const headerHeight = 64;
       const playlistContainer = this.findPlaylistContainer();
 
-      console.log(
-        "Starting track search for:",
-        trackId,
-        "at index:",
-        trackIndex
-      );
-      console.log(
-        "Using scroll container:",
-        playlistContainer ? "found" : "NOT FOUND"
-      );
-
       if (!playlistContainer) {
         // If we can't find a scroll container, just try to find the track as-is
         console.warn(
@@ -913,7 +868,6 @@
             link.closest('[data-testid="tracklist-row"]') ||
             link.closest('[role="row"]');
           if (row) {
-            console.log("Found track without scrolling");
             return row;
           }
         }
@@ -928,13 +882,11 @@
         const trackLinks = document.querySelectorAll(
           `a[href="/track/${trackId}"]`
         );
-        console.log("Found", trackLinks.length, "track links for:", trackId);
         for (const link of trackLinks) {
           const row =
             link.closest('[data-testid="tracklist-row"]') ||
             link.closest('[role="row"]');
           if (row) {
-            console.log("Found track row for:", trackId);
             return row;
           }
         }
@@ -945,7 +897,6 @@
         const interval = setInterval(() => {
           let found = findTrackElement();
           if (found) {
-            console.log("Successfully found track after", attempt, "attempts");
             clearInterval(interval);
             resolve(found);
             return;
@@ -956,15 +907,6 @@
             const targetScrollPosition =
               headerHeight + (trackIndex + 1) * rowHeight;
             const currentScroll = playlistContainer.scrollTop;
-
-            console.log(
-              "Attempt",
-              attempt,
-              "- Current scroll:",
-              currentScroll,
-              "Target:",
-              targetScrollPosition
-            );
 
             // If we're not close to the target, scroll closer
             if (
@@ -1000,12 +942,6 @@
 
           attempt++;
           if (Date.now() - start > timeout || attempt > maxAttempts) {
-            console.error(
-              "Timeout after",
-              attempt,
-              "attempts. Final scroll position:",
-              playlistContainer.scrollTop
-            );
             clearInterval(interval);
             reject(new Error("Timeout finding track"));
           }
@@ -1023,10 +959,6 @@
             behavior: "smooth",
             block: "center",
           });
-
-          console.log("Successfully jumped to currently playing track");
-        } else {
-          console.log("No currently playing track found in playlist");
         }
       } catch (error) {
         console.warn("Could not jump to currently playing track:", error);
@@ -1157,18 +1089,13 @@
 
   // Listen for authentication state changes from the popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Content script received message:", request);
-
     if (request.action === "toggle-search") {
-      console.log("Toggling search modal");
       playlist_search.toggle_search_modal();
       sendResponse({ success: true });
       return;
     }
 
     if (request.action === "auth_state_changed") {
-      console.log("Authentication state changed:", request.authenticated);
-
       if (request.authenticated && search_modal && search_modal.open) {
         // If search modal is open and we just got authenticated, try to load songs
         const content_area = search_modal.querySelector(
@@ -1178,9 +1105,6 @@
           content_area &&
           content_area.innerHTML.includes("Please connect to Spotify")
         ) {
-          console.log(
-            "Re-attempting to load playlist songs after authentication"
-          );
           // Close and reopen the modal to trigger a fresh load
           search_modal.close();
           setTimeout(() => {
@@ -1189,7 +1113,6 @@
         }
       } else if (!request.authenticated && search_modal && search_modal.open) {
         // If search modal is open and we just disconnected, show auth error
-        console.log("User disconnected while search modal was open");
         playlist_search.show_auth_error();
       }
 
