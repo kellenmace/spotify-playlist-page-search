@@ -14,17 +14,9 @@
 
   const playlist_search = {
     init() {
-      if (this.is_playlist_page()) {
-        this.inject_search_button();
-        this.inject_jump_to_playing_button();
-        this.extract_playlist_id();
-      }
-    },
-
-    is_playlist_page() {
-      return window.location.href.startsWith(
-        "https://open.spotify.com/playlist/"
-      );
+      this.inject_search_button();
+      this.inject_jump_to_playing_button();
+      this.extract_playlist_id();
     },
 
     extract_playlist_id() {
@@ -192,12 +184,6 @@
 
     async toggle_search_modal() {
       console.log("toggle_search_modal called");
-
-      // Only work on playlist pages
-      if (!this.is_playlist_page()) {
-        console.log("Not on a playlist page");
-        return;
-      }
 
       if (search_modal && search_modal.open) {
         console.log("Closing search modal");
@@ -1149,23 +1135,21 @@
     if (window.location.href !== current_url) {
       current_url = window.location.href;
 
-      if (playlist_search.is_playlist_page()) {
-        // Clear previous state
-        playlist_songs = [];
-        current_playlist_id = null;
-        is_first_fetch = true; // Reset for new playlist
-        filtered_songs = [];
-        keyboard_navigation_enabled = false;
-        selected_result_index = -1;
+      // Clear previous state
+      playlist_songs = [];
+      current_playlist_id = null;
+      is_first_fetch = true; // Reset for new playlist
+      filtered_songs = [];
+      keyboard_navigation_enabled = false;
+      selected_result_index = -1;
 
-        // Close modal if open
-        if (search_modal && search_modal.open) {
-          search_modal.close();
-        }
-
-        // Reinitialize for new playlist
-        setTimeout(() => playlist_search.init(), 500);
+      // Close modal if open
+      if (search_modal && search_modal.open) {
+        search_modal.close();
       }
+
+      // Reinitialize for new playlist
+      setTimeout(() => playlist_search.init(), 500);
     }
   });
 
