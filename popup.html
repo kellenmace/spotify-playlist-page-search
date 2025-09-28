@@ -6,12 +6,13 @@
     <title>Spotify Playlist Page Search</title>
     <style>
       body {
-        width: 350px;
+        width: 300px;
         padding: 20px;
         margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           sans-serif;
-        background-color: #f8f9fa;
+        background-color: #edf3ef;
+        border-block: 5px solid #1ed760;
       }
 
       .header {
@@ -20,7 +21,7 @@
       }
 
       .header h1 {
-        font-size: 18px;
+        font-size: 21px;
         margin: 0 0 8px 0;
         color: #1db954;
       }
@@ -101,7 +102,8 @@
       }
 
       .input-group {
-        margin-bottom: 12px;
+        margin-top: 22px;
+        margin-bottom: 5px;
       }
 
       .input-group label {
@@ -138,9 +140,20 @@
 
       .help-text {
         font-size: 11px;
-        color: #666;
-        margin-top: 8px;
-        line-height: 1.4;
+        color: #676767;
+        margin-top: 22px;
+        line-height: 2;
+        overflow-wrap: break-word;
+      }
+
+      .help-text code {
+        background-color: #e7e7e7;
+        border-radius: 4px;
+        padding: 2px 4px;
+        font-family: monospace;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+        word-break: break-all;
       }
 
       .help-link {
@@ -185,14 +198,13 @@
           target="_blank"
           class="help-link"
           >Create a Spotify app</a
-        >. Set the redirect URI to
-        <code>
-          chrome-extension://kdkegfofiepfedjhidkgploippjdalad/oauth-callback
-        </code>
+        >. Set the Redirect URI to
+        <code
+          >chrome-extension://kdkegfofiepfedjhidkgploippjdalad/oauth-callback</code
+        >
         and select the <code>Web API</code> option.
       </div>
     </div>
-
     <script src="popup.js"></script>
   </body>
 </html>

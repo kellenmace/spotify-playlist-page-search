@@ -472,11 +472,12 @@
           );
           await this.scrollToLoadTrack(trackId);
 
-          // Now try to find it again with a much longer timeout for large playlists
-          trackElement = await this.waitForTrackAndFind(trackId, 30000); // Increased from 10000ms to 30000ms
+          trackElement = await this.waitForTrackAndFind(trackId, 30000);
         }
 
         if (trackElement) {
+          this.clickTrackPlayButton(trackElement, trackId);
+
           // Scroll to the track
           trackElement.scrollIntoView({
             behavior: "smooth",
@@ -491,11 +492,6 @@
           setTimeout(() => {
             trackElement.style.outline = "";
           }, 3000);
-
-          // Find and click the play button for this track
-          setTimeout(() => {
-            this.clickTrackPlayButton(trackElement, trackId);
-          }, 500); // Small delay to ensure highlighting is visible first
 
           console.log(
             "Successfully scrolled to and highlighted track:",
