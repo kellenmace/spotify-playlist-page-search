@@ -4,11 +4,11 @@
   const popup_manager = {
     elements: {},
 
-    init() {
+    async init() {
       console.log("Popup manager initializing...");
       this.cache_elements();
       this.bind_events();
-      this.load_stored_data();
+      await this.load_stored_data();
       this.update_ui_state();
       console.log("Popup manager initialization complete");
     },
@@ -55,7 +55,11 @@
         const result = await chrome.storage.local.get([
           "spotify_client_id",
           "spotify_access_token",
+          "spotify_refresh_token",
+          "spotify_token_expires_at",
         ]);
+
+        console.log("Full storage result:", result);
 
         if (result.spotify_client_id) {
           this.elements.client_id_input.value = result.spotify_client_id;
@@ -65,6 +69,10 @@
         console.log("Stored data loaded:", {
           has_client_id: !!result.spotify_client_id,
           has_access_token: this.has_access_token,
+          access_token_length: result.spotify_access_token ? result.spotify_access_token.length : 0,
+          has_refresh_token: !!result.spotify_refresh_token,
+          expires_at: result.spotify_token_expires_at,
+          current_time: Date.now(),
         });
       } catch (error) {
         console.error("Error loading stored data:", error);
@@ -124,17 +132,10 @@
         console.log("Received response from background script:", response);
 
         if (response && response.success) {
-          console.log("OAuth flow successful, verifying token storage...");
+          console.log("OAuth flow successful, reloading stored data...");
 
-          // Verify that the token was actually stored
-          const stored_result = await chrome.storage.local.get([
-            "spotify_access_token",
-          ]);
-          console.log("Stored token check:", {
-            has_token: !!stored_result.spotify_access_token,
-          });
-
-          this.has_access_token = !!stored_result.spotify_access_token;
+          // Reload stored data to get the fresh access token
+          await this.load_stored_data();
           this.update_ui_state();
 
           if (!this.has_access_token) {

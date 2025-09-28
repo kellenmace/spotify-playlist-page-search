@@ -26,7 +26,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Spotify Playlist Search Settings"
+    "default_title": "Spotify Playlist Page Search Settings"
   },
   "background": {
     "service_worker": "background.js"
