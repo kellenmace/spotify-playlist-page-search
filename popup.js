@@ -5,10 +5,12 @@
     elements: {},
 
     async init() {
+      console.log("Popup manager initializing...");
       this.cache_elements();
       this.bind_events();
       await this.load_stored_data();
       this.update_ui_state();
+      console.log("Popup manager initialization complete");
     },
 
     cache_elements() {
@@ -19,6 +21,7 @@
       this.elements.client_id_input = document.getElementById("client-id");
       this.elements.save_button = document.getElementById("save-client-id");
 
+      console.log("Elements cached:", {
         status_indicator: !!this.elements.status_indicator,
         status_text: !!this.elements.status_text,
         auth_button: !!this.elements.auth_button,
@@ -28,12 +31,14 @@
     },
 
     bind_events() {
+      console.log("Binding events...");
 
       if (this.elements.auth_button) {
         this.elements.auth_button.addEventListener(
           "click",
           this.handle_auth_click.bind(this)
         );
+        console.log("Auth button event bound");
       }
 
       if (this.elements.save_button) {
@@ -41,6 +46,7 @@
           "click",
           this.handle_save_client_id.bind(this)
         );
+        console.log("Save button event bound");
       }
     },
 
@@ -53,12 +59,14 @@
           "spotify_token_expires_at",
         ]);
 
+        console.log("Full storage result:", result);
 
         if (result.spotify_client_id) {
           this.elements.client_id_input.value = result.spotify_client_id;
         }
 
         this.has_access_token = !!result.spotify_access_token;
+        console.log("Stored data loaded:", {
           has_client_id: !!result.spotify_client_id,
           has_access_token: this.has_access_token,
           access_token_length: result.spotify_access_token
@@ -91,9 +99,11 @@
       const has_client_id = this.elements.client_id_input.value.trim() !== "";
       this.elements.auth_button.disabled = !has_client_id;
 
+      console.log("UI state updated:", { is_connected, has_client_id });
     },
 
     async handle_auth_click() {
+      console.log("Auth button clicked");
 
       if (this.has_access_token) {
         await this.disconnect();
@@ -114,14 +124,17 @@
       this.elements.auth_button.textContent = "Connecting...";
 
       try {
+        console.log("Sending OAuth initiation message to background script...");
         // Send message to background script to initiate OAuth flow
         const response = await chrome.runtime.sendMessage({
           action: "initiate_oauth",
           client_id: client_id,
         });
 
+        console.log("Received response from background script:", response);
 
         if (response && response.success) {
+          console.log("OAuth flow successful, reloading stored data...");
 
           // Reload stored data to get the fresh access token
           await this.load_stored_data();
@@ -159,6 +172,13 @@
         const identityRedirectUri = chrome.identity.getRedirectURL();
         const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
 
+        console.log("=== SPOTIFY REDIRECT URI SETUP REQUIRED ===");
+        console.log("Go to: https://developer.spotify.com/dashboard");
+        console.log("Select your app → Settings → Redirect URIs");
+        console.log("Add BOTH of these URIs:");
+        console.log("1.", identityRedirectUri);
+        console.log("2.", fallbackRedirectUri);
+        console.log("==========================================");
 
         alert(
           `Failed to connect to Spotify: ${error.message}\n\nREQUIRED SETUP:\n\n` +
@@ -181,9 +201,11 @@
           url: "https://open.spotify.com/playlist/*",
         });
 
+        console.log(`Found ${tabs.length} Spotify playlist tab(s) to refresh`);
 
         // Reload each Spotify playlist tab
         for (const tab of tabs) {
+          console.log(`Reloading Spotify tab: ${tab.url}`);
           await chrome.tabs.reload(tab.id);
         }
 
@@ -196,6 +218,7 @@
             });
           } catch (error) {
             // Tab might not have content script loaded yet, that's okay
+            console.log(
               `Could not send message to tab ${tab.id}:`,
               error.message
             );
@@ -241,6 +264,7 @@
             });
           } catch (error) {
             // Tab might not have content script loaded yet, that's okay
+            console.log(
               `Could not send auth state message to tab ${tab.id}:`,
               error.message
             );
@@ -252,7 +276,9 @@
     },
 
     async handle_save_client_id() {
+      console.log("Save Client ID button clicked");
       const client_id = this.elements.client_id_input.value.trim();
+      console.log("Client ID value:", client_id);
 
       if (!client_id) {
         alert("Please enter a valid Client ID.");
@@ -260,10 +286,12 @@
       }
 
       try {
+        console.log("Attempting to save client ID...");
         this.elements.save_button.disabled = true;
         this.elements.save_button.textContent = "Saving...";
 
         await chrome.storage.local.set({ spotify_client_id: client_id });
+        console.log("Client ID saved successfully");
 
         this.update_ui_state();
 
