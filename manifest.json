@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Spotify Playlist Page Search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Search for songs within Spotify playlists",
   "author": "Kellen Mace",
   "homepage_url": "https://github.com/kellenmace/spotify-playlist-page-search/",

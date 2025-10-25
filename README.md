@@ -1,7 +1,7 @@
 # Spotify Playlist Page Search - Google Chrome Extension
 
 - **Author:** Kellen Mace
-- **Author URL:** http://kellenmace.com/
+- **Author URL:** https://kellenmace.com/
 - **License:** MIT
 - **GitHub URL:** https://github.com/kellenmace/spotify-playlist-page-search/
 - **Chrome Web Store URL:** https://chrome.google.com/webstore/detail/spotify-playlist-page-search/pdchbnnadgiagmpcakgfjopkglpechek

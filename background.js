@@ -99,6 +99,7 @@
 
       if (
         details.frameId === 0 &&
+        pendingAuthFlow && // Only process if a fallback flow is active
         (details.url.startsWith(identityRedirectUri) ||
           details.url.startsWith(fallbackRedirectUri))
       ) {
