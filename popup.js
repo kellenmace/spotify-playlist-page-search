@@ -122,15 +122,15 @@
         } else {
           const error_msg =
             response?.error || "OAuth flow failed - no error details provided";
-          const identityRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
-          const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
+          const identityRedirectUri = response?.identityRedirectUri || chrome.identity.getRedirectURL();
+          const fallbackRedirectUri = response?.fallbackRedirectUri || `chrome-extension://${chrome.runtime.id}/oauth-callback`;
 
           throw new Error(error_msg);
         }
       } catch (error) {
         console.error("OAuth error:", error);
         const identityRedirectUri = chrome.identity.getRedirectURL();
-        const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
+        const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/oauth-callback`;
 
         alert(
           `Failed to connect to Spotify: ${error.message}\n\nREQUIRED SETUP:\n\n` +

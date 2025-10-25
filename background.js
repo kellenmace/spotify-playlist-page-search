@@ -19,7 +19,7 @@
 
   // Fallback redirect URI for tab-based authentication
   function getFallbackRedirectURI() {
-    const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
+    const redirectUri = `chrome-extension://${chrome.runtime.id}/oauth-callback`;
     return redirectUri;
   }
 
@@ -159,7 +159,7 @@
     {
       url: [
         { urlPrefix: chrome.identity.getRedirectURL() },
-        { urlPrefix: `chrome-extension://${chrome.runtime.id}/` },
+        { urlPrefix: `chrome-extension://${chrome.runtime.id}/oauth-callback` },
       ],
     }
   );

@@ -34,7 +34,7 @@ Create a Spotify app at https://developer.spotify.com/dashboard using the field 
 
 - App name: "Spotify Playlist Page Search"
 - App description: "Spotify Playlist Page Search Google Chrome extension"
-- Redirect URIs: "chrome-extension://pdchbnnadgiagmpcakgfjopkglpechek/oauth-callback"
+- Redirect URIs: See step 2 below for the correct redirect URIs to use
 - Which API/SDKs are you planning to use?: Check the "Web API" box
 
 Click the Save button, then copy the Client ID for the Spotify app you created.
@@ -44,6 +44,16 @@ Click the Save button, then copy the Client ID for the Spotify app you created.
 - In the web browser, click the extension icon to open the popup.
 - Paste in your Spotify app's Client ID and click the button to save it.
 - Click the "Connect to Spotify" button
+
+**IMPORTANT**: When you click "Connect to Spotify", if the connection fails with an "Invalid redirect URI" error, the error message will show you the exact redirect URIs that need to be configured in your Spotify app settings. Go to https://developer.spotify.com/dashboard, select your app, go to Settings → Redirect URIs, and add both of the redirect URIs shown in the error message.
+
+The redirect URIs will look like:
+- `https://<extension-id>.chromiumapp.org/` (for Chrome Identity API)
+- `chrome-extension://<extension-id>/oauth-callback` (for fallback authentication)
+
+Where `<extension-id>` is your Chrome extension's unique ID. For the published version from the Chrome Web Store, the extension ID is `pdchbnnadgiagmpcakgfjopkglpechek`. For development/unpacked extensions, the ID will be different.
+
+After adding the redirect URIs to your Spotify app, try connecting again.
 
 The Spotify Playlist Page Search extension will then be connected to your Spotify app and you can begin using it.
 
