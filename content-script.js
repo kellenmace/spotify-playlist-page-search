@@ -11,6 +11,7 @@
   let keyboard_navigation_enabled = false;
   let selected_result_index = -1;
   let filtered_songs = [];
+  let debug_logging = true; // Toggle verbose diagnostics for scrolling
 
   const playlist_search = {
     init() {
@@ -640,32 +641,22 @@
 
     async scrollToAndHighlightTrack(trackId) {
       try {
-        // Attempt 1: quick find without scrolling
+        // 1. Fast path: track already rendered
         let trackElement = this.findTrackElementFast(trackId);
 
-        // Attempt 2: indexed scroll attempts based on known position
+        // 2. Indexed scroll attempt (aim near where track should be)
         if (!trackElement) {
           await this.scrollToLoadTrack(trackId);
           trackElement = this.findTrackElementFast(trackId);
         }
 
-        // Attempt 3: timed wait + adaptive nudging
+        // 3. Timed wait with adaptive nudging
         if (!trackElement) {
           try {
             trackElement = await this.waitForTrackAndFind(trackId, 15000);
           } catch (e) {
-            // swallow and continue to brute force
+            // Ignore timeout here; will log below if still not found
           }
-        }
-
-        // Attempt 4: progressive targeted scan across candidates
-        if (!trackElement) {
-          trackElement = await this.progressiveLocateTrack(trackId);
-        }
-
-        // Attempt 5: brute force scan through entire scroll range
-        if (!trackElement) {
-          trackElement = await this.bruteForceScanForTrack(trackId);
         }
 
         if (trackElement) {
@@ -680,7 +671,8 @@
     },
 
     findTrackElementFast(trackId) {
-      const links = document.querySelectorAll(`a[href="/track/${trackId}"]`);
+      // Accept links that may include query params or suffixes (e.g. ?si=...)
+      const links = document.querySelectorAll(`a[href*="/track/${trackId}"]`);
       for (const link of links) {
         const row =
           link.closest('[data-testid="tracklist-row"]') ||
@@ -689,6 +681,81 @@
       }
       return null;
     },
+
+    getScrollableContainers() {
+      const results = [];
+      const seen = new Set();
+      const pushUnique = (el, origin) => {
+        if (!el || seen.has(el)) return;
+        seen.add(el);
+        results.push(el);
+        if (debug_logging) {
+          // minimal metrics
+          const sh = el.scrollHeight,
+            ch = el.clientHeight;
+          console.log(
+            "[getScrollableContainers] add",
+            origin,
+            "scrollH",
+            sh,
+            "clientH",
+            ch,
+            "ratio",
+            ch ? (sh / ch).toFixed(2) : "n/a"
+          );
+        }
+      };
+      const baseSelectors = [
+        '[data-testid="playlist-tracklist"] [data-overlayscrollbars-viewport]',
+        '[data-testid="playlist-tracklist"] .os-viewport',
+        '[data-testid="playlist-tracklist"]',
+        ".main-view-container__scroll-node",
+        ".main-view-container .os-viewport",
+        'main[role="main"]',
+        "main",
+        ".main-view-container",
+      ];
+      baseSelectors.forEach((sel) => {
+        document.querySelectorAll(sel).forEach((el) => pushUnique(el, sel));
+      });
+      // Descendants & ancestors of tracklist grid
+      const grid = document.querySelector('[data-testid="playlist-tracklist"]');
+      if (grid) {
+        // Ancestors
+        let a = grid.parentElement;
+        let depth = 0;
+        while (a && depth < 8) {
+          pushUnique(a, "ancestor:" + depth);
+          a = a.parentElement;
+          depth++;
+        }
+        // Descendants that are potential viewports
+        grid.querySelectorAll("*").forEach((el) => {
+          if (
+            el.scrollHeight > el.clientHeight + 40 &&
+            el.clientHeight > 200 &&
+            el.clientHeight < el.scrollHeight
+          ) {
+            pushUnique(el, "descendant");
+          }
+        });
+      }
+      // Filter out sidebar/library
+      const filtered = results.filter((el) => {
+        const text = (el.textContent || "").slice(0, 2000); // limit cost
+        if (/Your Library/i.test(text)) return false;
+        return true;
+      });
+      // Rank: prefer containers with high scrollHeight/clientHeight ratio and moderate clientHeight
+      filtered.sort((a, b) => {
+        const ra = a.scrollHeight / (a.clientHeight || 1);
+        const rb = b.scrollHeight / (b.clientHeight || 1);
+        return rb - ra;
+      });
+      return filtered;
+    },
+
+    // Removed experimental materializeTrackRow & getPrimaryTracklistScrollContainer (rollback)
 
     clickTrackPlayButton(trackElement, trackId) {
       try {
@@ -735,131 +802,152 @@
         console.warn("Track not found in playlist data:", trackId);
         return;
       }
-      const candidates = this.getScrollableCandidates();
-      if (candidates.length === 0) {
-        console.warn("No scrollable candidates found for loading track");
+      const containers = this.getScrollableContainers();
+      if (containers.length === 0) {
+        console.warn("No scrollable containers discovered");
         return;
       }
-      const rowHeight = 56;
+      // Attempt to derive row height from a visible track row
+      let rowHeight = 56;
+      const sampleRow = document.querySelector('[data-testid="tracklist-row"]');
+      if (sampleRow) {
+        const rect = sampleRow.getBoundingClientRect();
+        if (rect && rect.height > 30 && rect.height < 120) {
+          rowHeight = rect.height;
+        }
+      }
+      // Improved estimation using first & last visible rows
+      const rows = Array.from(
+        document.querySelectorAll('[data-testid="tracklist-row"]')
+      );
+      if (rows.length >= 2) {
+        const firstRect = rows[0].getBoundingClientRect();
+        const lastRect = rows[rows.length - 1].getBoundingClientRect();
+        const approx = (lastRect.top - firstRect.top) / (rows.length - 1);
+        if (approx > 30 && approx < 120) rowHeight = approx;
+      }
       const headerHeight = 64;
       const targetOffset = headerHeight + (trackIndex + 1) * rowHeight;
-      // Try each candidate briefly
-      for (const c of candidates) {
-        try {
-          c.scrollTo({ top: targetOffset, behavior: "auto" });
-          await new Promise((r) => setTimeout(r, 300));
+      for (const container of containers) {
+        // Skip non-overflow candidates where scrollHeight ~ clientHeight
+        if (
+          !(container.scrollHeight > container.clientHeight + 50) ||
+          container.clientHeight > container.scrollHeight - 5
+        ) {
+          continue;
+        }
+        if (debug_logging)
+          console.log(
+            "[scrollToLoadTrack] attempt container",
+            container.className || container.id || container.tagName,
+            "index",
+            trackIndex,
+            "targetOffset",
+            targetOffset,
+            "rowHeight",
+            rowHeight,
+            "sh/ch",
+            container.scrollHeight,
+            "/",
+            container.clientHeight
+          );
+        container.scrollTo({
+          top: Math.max(targetOffset - container.clientHeight / 2, 0),
+          behavior: "auto",
+        });
+        await new Promise((r) => setTimeout(r, 250));
+        if (this.findTrackElementFast(trackId)) return;
+        // Nudge pattern
+        for (let j = 0; j < 6; j++) {
           if (this.findTrackElementFast(trackId)) return;
-          // Fine adjustments
-          for (let j = 0; j < 4; j++) {
-            if (this.findTrackElementFast(trackId)) return;
-            c.scrollBy({
-              top: (j % 2 === 0 ? 1 : -1) * rowHeight * 2,
+          const dir = j % 2 === 0 ? 1 : -1;
+          container.scrollBy({
+            top: dir * rowHeight * (j < 3 ? 6 : 12),
+            behavior: "auto",
+          });
+          await new Promise((r) => setTimeout(r, 180));
+        }
+        // Brute sweep small window around target if still not found
+        if (!this.findTrackElementFast(trackId)) {
+          const sweepSpan = container.clientHeight * 0.8;
+          const base = Math.max(targetOffset - sweepSpan, 0);
+          for (
+            let pos = base;
+            pos < base + sweepSpan * 2;
+            pos += rowHeight * 15
+          ) {
+            container.scrollTo({
+              top: Math.min(
+                pos,
+                container.scrollHeight - container.clientHeight
+              ),
               behavior: "auto",
             });
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 140));
+            if (this.findTrackElementFast(trackId)) return;
           }
-        } catch (e) {
-          // ignore candidate errors
         }
+        if (this.findTrackElementFast(trackId)) return; // final check for this container
       }
     },
 
     getScrollableCandidates() {
-      const unique = new Set();
-      const push = (el) => {
-        if (
-          el &&
-          el.scrollHeight > el.clientHeight + 100 &&
-          el.clientHeight > 150
-        ) {
-          unique.add(el);
+      const candidates = [];
+      // Primary: explicit playlist tracklist container
+      const tracklist = document.querySelector(
+        '[data-testid="playlist-tracklist"]'
+      );
+      if (tracklist) {
+        // If the tracklist itself scrolls
+        if (tracklist.scrollHeight > tracklist.clientHeight + 50) {
+          candidates.push(tracklist);
         }
-      };
-      // Known selectors
-      [
-        "[data-overlayscrollbars-viewport]",
-        ".main-view-container__scroll-node",
-        ".main-view-container .os-viewport",
-        '[data-testid="playlist-tracklist"]',
-        '[role="grid"]',
-        ".main-view-container",
-        ".Root__main-view",
-        "main",
-        '[role="main"]',
-      ].forEach((sel) => document.querySelectorAll(sel).forEach(push));
-      // Fallback body/html
-      push(document.body);
-      push(document.documentElement);
-      return Array.from(unique);
-    },
-
-    async progressiveLocateTrack(trackId) {
-      const trackIndex = playlist_songs.findIndex((s) => s.id === trackId);
-      if (trackIndex === -1) return null;
-      const candidates = this.getScrollableCandidates();
-      if (candidates.length === 0) return null;
-      const rowHeight = 56;
-      const headerHeight = 64;
-      const targetOffset = headerHeight + (trackIndex + 1) * rowHeight;
-      const tolerance = rowHeight * 3;
-      for (const c of candidates) {
-        let attempts = 0;
-        const maxAttempts = 60; // ~ moderate
-        while (attempts < maxAttempts) {
-          const found = this.findTrackElementFast(trackId);
-          if (found) return found;
-          const current = c.scrollTop;
-          const delta = targetOffset - current;
-          if (Math.abs(delta) <= tolerance) {
-            // Fine scan around target
-            for (let k = -5; k <= 5; k++) {
-              if (this.findTrackElementFast(trackId))
-                return this.findTrackElementFast(trackId);
-              c.scrollTo({
-                top: targetOffset + k * rowHeight * 2,
-                behavior: "auto",
-              });
-              await new Promise((r) => setTimeout(r, 120));
-            }
-          } else {
-            // Move towards target
-            const step =
-              Math.sign(delta) * Math.min(Math.abs(delta), rowHeight * 20);
-            c.scrollBy({ top: step, behavior: "auto" });
-            await new Promise((r) => setTimeout(r, 140));
+        // Common internal viewport wrappers
+        const internalSelectors = [
+          "[data-overlayscrollbars-viewport]",
+          ".os-viewport",
+        ];
+        internalSelectors.forEach((sel) => {
+          const el = tracklist.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight + 50) {
+            candidates.push(el);
           }
-          attempts++;
+        });
+      }
+
+      // Secondary: derive container from existing track rows if tracklist not found yet
+      if (candidates.length === 0) {
+        const anyRow = document.querySelector('[data-testid="tracklist-row"]');
+        if (anyRow) {
+          // Walk up ancestors to find first sizable scrollable
+          let ancestor = anyRow.parentElement;
+          while (ancestor) {
+            if (
+              ancestor.scrollHeight > ancestor.clientHeight + 100 &&
+              ancestor.clientHeight > 200
+            ) {
+              candidates.push(ancestor);
+              break;
+            }
+            ancestor = ancestor.parentElement;
+          }
         }
       }
-      return null;
+
+      // Tertiary fallback: generic main content grid
+      if (candidates.length === 0) {
+        const generic =
+          document.querySelector('[role="grid"]') ||
+          document.querySelector(".main-view-container__scroll-node");
+        if (generic && generic.scrollHeight > generic.clientHeight + 50) {
+          candidates.push(generic);
+        }
+      }
+
+      return candidates;
     },
 
-    async bruteForceScanForTrack(trackId) {
-      const playlistContainer = this.findPlaylistContainer();
-      if (!playlistContainer) return null;
-      const viewport = playlistContainer;
-      const total = viewport.scrollHeight - viewport.clientHeight;
-      if (total <= 0) return this.findTrackElementFast(trackId);
-      const step = Math.max(200, Math.round(viewport.clientHeight * 0.6));
-      let position = 0;
-      let direction = 1;
-      let passes = 0;
-      const maxPasses = 3; // up/down sweeps
-      while (passes < maxPasses) {
-        while (position >= 0 && position <= total) {
-          viewport.scrollTo({ top: position, behavior: "auto" });
-          await new Promise((r) => setTimeout(r, 120));
-          const found = this.findTrackElementFast(trackId);
-          if (found) return found;
-          position += direction * step;
-        }
-        // reverse direction
-        direction *= -1;
-        position = Math.min(Math.max(position, 0), total);
-        passes++;
-      }
-      return this.findTrackElementFast(trackId);
-    },
+    // Removed ensureTrackVisible & waitShort (rollback)
 
     findPlaylistContainer() {
       // Try the overlayscrollbars viewport first
@@ -943,6 +1031,60 @@
       return null;
     },
 
+    resolveTracklistScrollContainer() {
+      const isSidebar = (el) =>
+        /Your Library/i.test(el.textContent || "") ||
+        el.getAttribute("aria-label") === "Your Library";
+      const qualifies = (el) =>
+        el &&
+        el.scrollHeight > el.clientHeight + 100 &&
+        el.clientHeight > 250 &&
+        !isSidebar(el);
+      const selectors = [
+        '[data-testid="playlist-tracklist"] [data-overlayscrollbars-viewport]',
+        '[data-testid="playlist-tracklist"] .os-viewport',
+        '[data-testid="playlist-tracklist"]',
+        ".main-view-container__scroll-node",
+        ".main-view-container .os-viewport",
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && qualifies(el)) {
+          if (debug_logging)
+            console.log("[resolveTracklistScrollContainer] selector", sel);
+          return el;
+        }
+      }
+      const anyRow = document.querySelector('[data-testid="tracklist-row"]');
+      if (anyRow) {
+        let a = anyRow.parentElement;
+        for (let depth = 0; depth < 8 && a; depth++) {
+          if (qualifies(a)) {
+            if (debug_logging)
+              console.log(
+                "[resolveTracklistScrollContainer] ancestor depth",
+                depth
+              );
+            return a;
+          }
+          a = a.parentElement;
+        }
+      }
+      const mains = document.querySelectorAll(
+        'main, .main-view-container, [role="main"]'
+      );
+      for (const m of mains) {
+        if (qualifies(m)) {
+          if (debug_logging)
+            console.log("[resolveTracklistScrollContainer] main fallback");
+          return m;
+        }
+      }
+      if (debug_logging)
+        console.warn("[resolveTracklistScrollContainer] no container found");
+      return null;
+    },
+
     async waitForTrackAndFind(trackId, timeout = 15000) {
       const start = Date.now();
       const trackIndex = playlist_songs.findIndex(
@@ -950,26 +1092,24 @@
       );
       const rowHeight = 56;
       const headerHeight = 64;
-      const playlistContainer = this.findPlaylistContainer();
-
-      if (!playlistContainer) {
-        // If we can't find a scroll container, just try to find the track as-is
-        console.warn(
-          "No scroll container found, attempting to find track without scrolling"
-        );
-        const trackLinks = document.querySelectorAll(
-          `a[href="/track/${trackId}"]`
-        );
-        for (const link of trackLinks) {
-          const row =
-            link.closest('[data-testid="tracklist-row"]') ||
-            link.closest('[role="row"]');
-          if (row) {
-            return row;
-          }
-        }
-        throw new Error("No scroll container found and track not visible");
+      const containers = this.getScrollableContainers();
+      if (containers.length === 0) {
+        console.warn("No containers for waitForTrackAndFind");
+        return null;
       }
+      let containerIndex = 0;
+      let playlistContainer = containers[containerIndex];
+      const advanceContainer = () => {
+        containerIndex = (containerIndex + 1) % containers.length;
+        playlistContainer = containers[containerIndex];
+        if (debug_logging)
+          console.log(
+            "[waitForTrackAndFind] switching container to",
+            playlistContainer.className ||
+              playlistContainer.id ||
+              playlistContainer.tagName
+          );
+      };
 
       let lastScrollTop = -1;
       let attempt = 0;
@@ -977,35 +1117,30 @@
 
       const findTrackElement = () => {
         const trackLinks = document.querySelectorAll(
-          `a[href="/track/${trackId}"]`
+          `a[href*="/track/${trackId}"]`
         );
         for (const link of trackLinks) {
           const row =
             link.closest('[data-testid="tracklist-row"]') ||
             link.closest('[role="row"]');
-          if (row) {
-            return row;
-          }
+          if (row) return row;
         }
         return null;
       };
 
       return new Promise((resolve, reject) => {
         const interval = setInterval(() => {
-          let found = findTrackElement();
+          const found = findTrackElement();
           if (found) {
             clearInterval(interval);
             resolve(found);
             return;
           }
 
-          // If not found and we have container info, try scrolling
           if (trackIndex !== -1) {
             const targetScrollPosition =
               headerHeight + (trackIndex + 1) * rowHeight;
             const currentScroll = playlistContainer.scrollTop;
-
-            // If we're not close to the target, scroll closer
             if (
               Math.abs(currentScroll - targetScrollPosition) >
               rowHeight * 3
@@ -1015,7 +1150,6 @@
                 behavior: "auto",
               });
             } else {
-              // If we're close, try small nudges in both directions
               const nudgeAmount =
                 attempt % 2 === 0 ? rowHeight * 2 : -rowHeight * 2;
               playlistContainer.scrollBy({
@@ -1023,16 +1157,10 @@
                 behavior: "auto",
               });
             }
-
-            // If the scroll position isn't changing, we might be stuck
             if (Math.abs(playlistContainer.scrollTop - lastScrollTop) < 5) {
-              console.warn(
-                "Scroll position not changing, trying different approach"
-              );
-              // Try scrolling to beginning and then to target
-              if (attempt < maxAttempts / 2) {
-                playlistContainer.scrollTo({ top: 0, behavior: "auto" });
-              }
+              if (debug_logging)
+                console.warn("[waitForTrackAndFind] stagnation");
+              advanceContainer();
             }
             lastScrollTop = playlistContainer.scrollTop;
           }
@@ -1078,7 +1206,7 @@
       }
 
       // If not found, start from top and scroll down quickly
-      const playlist_container = this.findPlaylistContainer();
+      const playlist_container = this.resolveTracklistScrollContainer();
       if (!playlist_container) {
         console.warn("Could not find playlist container for scrolling");
         return null;
