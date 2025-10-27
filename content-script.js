@@ -640,33 +640,54 @@
 
     async scrollToAndHighlightTrack(trackId) {
       try {
-        // First, try to find the track in the current DOM
-        let trackElement = await this.waitForTrackAndFind(trackId, 3000); // Increased from 2000ms
+        // Attempt 1: quick find without scrolling
+        let trackElement = this.findTrackElementFast(trackId);
 
+        // Attempt 2: indexed scroll attempts based on known position
         if (!trackElement) {
-          // Track not found in DOM, need to scroll to load it
           await this.scrollToLoadTrack(trackId);
+          trackElement = this.findTrackElementFast(trackId);
+        }
 
-          trackElement = await this.waitForTrackAndFind(trackId, 30000);
+        // Attempt 3: timed wait + adaptive nudging
+        if (!trackElement) {
+          try {
+            trackElement = await this.waitForTrackAndFind(trackId, 15000);
+          } catch (e) {
+            // swallow and continue to brute force
+          }
+        }
+
+        // Attempt 4: progressive targeted scan across candidates
+        if (!trackElement) {
+          trackElement = await this.progressiveLocateTrack(trackId);
+        }
+
+        // Attempt 5: brute force scan through entire scroll range
+        if (!trackElement) {
+          trackElement = await this.bruteForceScanForTrack(trackId);
         }
 
         if (trackElement) {
           this.clickTrackPlayButton(trackElement, trackId);
-
-          // Scroll to the track
-          trackElement.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
+          trackElement.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
-          console.warn(
-            "Track not found in DOM after scrolling attempts:",
-            trackId
-          );
+          console.warn("Track not found after all strategies:", trackId);
         }
       } catch (error) {
         console.warn("Could not find/highlight track:", error);
       }
+    },
+
+    findTrackElementFast(trackId) {
+      const links = document.querySelectorAll(`a[href="/track/${trackId}"]`);
+      for (const link of links) {
+        const row =
+          link.closest('[data-testid="tracklist-row"]') ||
+          link.closest('[role="row"]');
+        if (row) return row;
+      }
+      return null;
     },
 
     clickTrackPlayButton(trackElement, trackId) {
@@ -714,58 +735,130 @@
         console.warn("Track not found in playlist data:", trackId);
         return;
       }
-      const playlistContainer = this.findPlaylistContainer();
-      if (!playlistContainer) {
-        console.warn("Could not find playlist container for scrolling");
+      const candidates = this.getScrollableCandidates();
+      if (candidates.length === 0) {
+        console.warn("No scrollable candidates found for loading track");
         return;
       }
       const rowHeight = 56;
       const headerHeight = 64;
-      const maxAttempts = 40; // up to ~40 scrolls (should be enough for huge playlists)
-      let attempt = 0;
-      let found = false;
-      let lastScrollTop = -1;
-      let direction = 1; // always scroll down for now
-      while (attempt < maxAttempts) {
-        // Calculate where we want to scroll
-        const targetScrollPosition =
-          headerHeight + (trackIndex + 1) * rowHeight;
-        playlistContainer.scrollTo({
-          top: targetScrollPosition,
-          behavior: "auto",
-        });
-        // Wait for DOM to update
-        await new Promise((resolve) => setTimeout(resolve, 700));
-        // Check if the track is now present
-        const trackLinks = document.querySelectorAll(
-          `a[href="/track/${trackId}"]`
-        );
-        for (const link of trackLinks) {
-          const row =
-            link.closest('[data-testid="tracklist-row"]') ||
-            link.closest('[role="row"]');
-          if (row) {
-            found = true;
-            break;
+      const targetOffset = headerHeight + (trackIndex + 1) * rowHeight;
+      // Try each candidate briefly
+      for (const c of candidates) {
+        try {
+          c.scrollTo({ top: targetOffset, behavior: "auto" });
+          await new Promise((r) => setTimeout(r, 300));
+          if (this.findTrackElementFast(trackId)) return;
+          // Fine adjustments
+          for (let j = 0; j < 4; j++) {
+            if (this.findTrackElementFast(trackId)) return;
+            c.scrollBy({
+              top: (j % 2 === 0 ? 1 : -1) * rowHeight * 2,
+              behavior: "auto",
+            });
+            await new Promise((r) => setTimeout(r, 250));
           }
+        } catch (e) {
+          // ignore candidate errors
         }
-        if (found) break;
-        // If not found, nudge the scroll position a bit further (in case virtualization is lagging)
-        playlistContainer.scrollBy({
-          top: direction * rowHeight * 3,
-          behavior: "auto",
-        });
-        // If the scroll position isn't changing, break to avoid infinite loop
-        if (playlistContainer.scrollTop === lastScrollTop) break;
-        lastScrollTop = playlistContainer.scrollTop;
-        attempt++;
       }
-      if (!found) {
-        console.warn(
-          "Track not found after repeated scroll attempts:",
-          trackId
-        );
+    },
+
+    getScrollableCandidates() {
+      const unique = new Set();
+      const push = (el) => {
+        if (
+          el &&
+          el.scrollHeight > el.clientHeight + 100 &&
+          el.clientHeight > 150
+        ) {
+          unique.add(el);
+        }
+      };
+      // Known selectors
+      [
+        "[data-overlayscrollbars-viewport]",
+        ".main-view-container__scroll-node",
+        ".main-view-container .os-viewport",
+        '[data-testid="playlist-tracklist"]',
+        '[role="grid"]',
+        ".main-view-container",
+        ".Root__main-view",
+        "main",
+        '[role="main"]',
+      ].forEach((sel) => document.querySelectorAll(sel).forEach(push));
+      // Fallback body/html
+      push(document.body);
+      push(document.documentElement);
+      return Array.from(unique);
+    },
+
+    async progressiveLocateTrack(trackId) {
+      const trackIndex = playlist_songs.findIndex((s) => s.id === trackId);
+      if (trackIndex === -1) return null;
+      const candidates = this.getScrollableCandidates();
+      if (candidates.length === 0) return null;
+      const rowHeight = 56;
+      const headerHeight = 64;
+      const targetOffset = headerHeight + (trackIndex + 1) * rowHeight;
+      const tolerance = rowHeight * 3;
+      for (const c of candidates) {
+        let attempts = 0;
+        const maxAttempts = 60; // ~ moderate
+        while (attempts < maxAttempts) {
+          const found = this.findTrackElementFast(trackId);
+          if (found) return found;
+          const current = c.scrollTop;
+          const delta = targetOffset - current;
+          if (Math.abs(delta) <= tolerance) {
+            // Fine scan around target
+            for (let k = -5; k <= 5; k++) {
+              if (this.findTrackElementFast(trackId))
+                return this.findTrackElementFast(trackId);
+              c.scrollTo({
+                top: targetOffset + k * rowHeight * 2,
+                behavior: "auto",
+              });
+              await new Promise((r) => setTimeout(r, 120));
+            }
+          } else {
+            // Move towards target
+            const step =
+              Math.sign(delta) * Math.min(Math.abs(delta), rowHeight * 20);
+            c.scrollBy({ top: step, behavior: "auto" });
+            await new Promise((r) => setTimeout(r, 140));
+          }
+          attempts++;
+        }
       }
+      return null;
+    },
+
+    async bruteForceScanForTrack(trackId) {
+      const playlistContainer = this.findPlaylistContainer();
+      if (!playlistContainer) return null;
+      const viewport = playlistContainer;
+      const total = viewport.scrollHeight - viewport.clientHeight;
+      if (total <= 0) return this.findTrackElementFast(trackId);
+      const step = Math.max(200, Math.round(viewport.clientHeight * 0.6));
+      let position = 0;
+      let direction = 1;
+      let passes = 0;
+      const maxPasses = 3; // up/down sweeps
+      while (passes < maxPasses) {
+        while (position >= 0 && position <= total) {
+          viewport.scrollTo({ top: position, behavior: "auto" });
+          await new Promise((r) => setTimeout(r, 120));
+          const found = this.findTrackElementFast(trackId);
+          if (found) return found;
+          position += direction * step;
+        }
+        // reverse direction
+        direction *= -1;
+        position = Math.min(Math.max(position, 0), total);
+        passes++;
+      }
+      return this.findTrackElementFast(trackId);
     },
 
     findPlaylistContainer() {
@@ -1073,30 +1166,52 @@
 
   // Re-inject button when navigating within Spotify (SPA navigation)
   let current_url = window.location.href;
+  let navigation_timeout;
 
-  const observer = new MutationObserver(() => {
-    if (window.location.href !== current_url) {
-      current_url = window.location.href;
+  function handle_navigation() {
+    // This function is called on URL change.
+    // It resets the extension state and re-initializes it.
 
-      // Clear previous state
-      playlist_songs = [];
-      current_playlist_id = null;
-      is_first_fetch = true; // Reset for new playlist
-      filtered_songs = [];
-      keyboard_navigation_enabled = false;
-      selected_result_index = -1;
+    // Clear previous state
+    playlist_songs = [];
+    current_playlist_id = null;
+    is_first_fetch = true; // Reset for new playlist
+    filtered_songs = [];
+    keyboard_navigation_enabled = false;
+    selected_result_index = -1;
 
-      // Close modal if open
-      if (search_modal && search_modal.open) {
+    // Close and remove modal if it exists
+    if (search_modal) {
+      if (search_modal.open) {
         search_modal.close();
       }
-
-      // Reinitialize for new playlist
-      setTimeout(() => playlist_search.init(), 500);
+      // Remove the modal from the DOM to force recreation
+      search_modal.remove();
+      search_modal = null;
     }
-  });
 
-  observer.observe(document, { childList: true, subtree: true });
+    // Reinitialize for new page
+    // Use a timeout to ensure the DOM is updated after navigation
+    setTimeout(() => playlist_search.init(), 500);
+  }
+
+  function on_url_change() {
+    // Debounce navigation events to avoid multiple triggers
+    clearTimeout(navigation_timeout);
+    navigation_timeout = setTimeout(() => {
+      if (window.location.href !== current_url) {
+        current_url = window.location.href;
+        handle_navigation();
+      }
+    }, 100); // 100ms debounce interval
+  }
+
+  // Listen for history changes (back/forward buttons)
+  window.addEventListener("popstate", on_url_change);
+
+  // Observe DOM changes for SPA navigation (clicking links)
+  const observer = new MutationObserver(on_url_change);
+  observer.observe(document.body, { childList: true, subtree: true });
 
   // Listen for authentication state changes from the popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

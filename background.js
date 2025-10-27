@@ -83,9 +83,6 @@
 
     const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
 
-    // Open the auth page in a new tab
-    const tab = await chrome.tabs.create({ url: auth_url });
-
     // The promise will be resolved by the onBeforeNavigate listener when it detects the redirect
     return flowPromise;
   }
@@ -470,4 +467,20 @@
       return true; // Keep the message channel open for async response
     }
   });
+
+  // Listen for history state updates (e.g., client-side navigation)
+  chrome.webNavigation.onHistoryStateUpdated.addListener(
+    (details) => {
+      // Check if the URL is a Spotify playlist page
+      if (details.url && details.url.includes("open.spotify.com/playlist/")) {
+        // Send a message to the content script in that tab to re-initialize
+        chrome.tabs.sendMessage(details.tabId, {
+          action: "playlist_page_updated",
+        });
+      }
+    },
+    {
+      url: [{ hostContains: "open.spotify.com" }],
+    }
+  );
 })();
