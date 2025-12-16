@@ -1122,6 +1122,18 @@
     },
 
     async jump_to_currently_playing_track() {
+      const playPauseButton = document.querySelector(
+        'button[data-testid="control-button-playpause"]'
+      );
+
+      if (playPauseButton) {
+        const ariaLabel = playPauseButton.getAttribute("aria-label");
+        const isPlaying = ariaLabel === "Pause";
+
+        // No song is playing. Don't attempt to jump to it.
+        if (!isPlaying) return;
+      }
+
       try {
         const playing_track_element = await this.find_currently_playing_track();
 
