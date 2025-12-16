@@ -104,7 +104,7 @@
 
       // Find the target element (control-button-npv)
       const target_element = document.querySelector(
-        'button[data-testid="control-button-npv"]'
+        'button[data-testid="lyrics-button"]'
       );
 
       if (target_element) {
@@ -687,10 +687,12 @@
       const seen = new Set();
       const pushUnique = (el, origin) => {
         if (!el || seen.has(el)) return;
+        // Must be visible
+        if (!el.offsetParent && el !== document.documentElement) return;
+
         seen.add(el);
         results.push(el);
         if (debug_logging) {
-          // minimal metrics
           const sh = el.scrollHeight,
             ch = el.clientHeight;
           console.log(
@@ -708,9 +710,10 @@
       const baseSelectors = [
         '[data-testid="playlist-tracklist"] [data-overlayscrollbars-viewport]',
         '[data-testid="playlist-tracklist"] .os-viewport',
-        '[data-testid="playlist-tracklist"]',
         ".main-view-container__scroll-node",
         ".main-view-container .os-viewport",
+        "[data-overlayscrollbars-viewport]",
+        ".os-viewport",
         'main[role="main"]',
         "main",
         ".main-view-container",
@@ -718,36 +721,28 @@
       baseSelectors.forEach((sel) => {
         document.querySelectorAll(sel).forEach((el) => pushUnique(el, sel));
       });
-      // Descendants & ancestors of tracklist grid
-      const grid = document.querySelector('[data-testid="playlist-tracklist"]');
-      if (grid) {
-        // Ancestors
-        let a = grid.parentElement;
-        let depth = 0;
-        while (a && depth < 8) {
-          pushUnique(a, "ancestor:" + depth);
-          a = a.parentElement;
-          depth++;
-        }
-        // Descendants that are potential viewports
-        grid.querySelectorAll("*").forEach((el) => {
-          if (
-            el.scrollHeight > el.clientHeight + 40 &&
-            el.clientHeight > 200 &&
-            el.clientHeight < el.scrollHeight
-          ) {
-            pushUnique(el, "descendant");
-          }
-        });
-      }
-      // Filter out sidebar/library
+
+      // Filter out non-scrollable
       const filtered = results.filter((el) => {
-        const text = (el.textContent || "").slice(0, 2000); // limit cost
-        if (/Your Library/i.test(text)) return false;
-        return true;
+        return el.scrollHeight > el.clientHeight + 50;
       });
-      // Rank: prefer containers with high scrollHeight/clientHeight ratio and moderate clientHeight
+
+      // Rank: prefer known classes, then ratio
       filtered.sort((a, b) => {
+        const getScore = (el) => {
+          let score = 0;
+          if (el.matches("[data-overlayscrollbars-viewport], .os-viewport"))
+            score += 100;
+          if (el.matches(".main-view-container__scroll-node")) score += 90;
+          if (el.tagName === "MAIN") score += 10;
+          return score;
+        };
+
+        const scoreA = getScore(a);
+        const scoreB = getScore(b);
+
+        if (scoreA !== scoreB) return scoreB - scoreA;
+
         const ra = a.scrollHeight / (a.clientHeight || 1);
         const rb = b.scrollHeight / (b.clientHeight || 1);
         return rb - ra;
@@ -1031,60 +1026,6 @@
       return null;
     },
 
-    resolveTracklistScrollContainer() {
-      const isSidebar = (el) =>
-        /Your Library/i.test(el.textContent || "") ||
-        el.getAttribute("aria-label") === "Your Library";
-      const qualifies = (el) =>
-        el &&
-        el.scrollHeight > el.clientHeight + 100 &&
-        el.clientHeight > 250 &&
-        !isSidebar(el);
-      const selectors = [
-        '[data-testid="playlist-tracklist"] [data-overlayscrollbars-viewport]',
-        '[data-testid="playlist-tracklist"] .os-viewport',
-        '[data-testid="playlist-tracklist"]',
-        ".main-view-container__scroll-node",
-        ".main-view-container .os-viewport",
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && qualifies(el)) {
-          if (debug_logging)
-            console.log("[resolveTracklistScrollContainer] selector", sel);
-          return el;
-        }
-      }
-      const anyRow = document.querySelector('[data-testid="tracklist-row"]');
-      if (anyRow) {
-        let a = anyRow.parentElement;
-        for (let depth = 0; depth < 8 && a; depth++) {
-          if (qualifies(a)) {
-            if (debug_logging)
-              console.log(
-                "[resolveTracklistScrollContainer] ancestor depth",
-                depth
-              );
-            return a;
-          }
-          a = a.parentElement;
-        }
-      }
-      const mains = document.querySelectorAll(
-        'main, .main-view-container, [role="main"]'
-      );
-      for (const m of mains) {
-        if (qualifies(m)) {
-          if (debug_logging)
-            console.log("[resolveTracklistScrollContainer] main fallback");
-          return m;
-        }
-      }
-      if (debug_logging)
-        console.warn("[resolveTracklistScrollContainer] no container found");
-      return null;
-    },
-
     async waitForTrackAndFind(trackId, timeout = 15000) {
       const start = Date.now();
       const trackIndex = playlist_songs.findIndex(
@@ -1198,60 +1139,122 @@
     },
 
     async find_currently_playing_track() {
-      // First, try to find the track in the current DOM
+      // 1. Try to find the track in the current DOM (fastest)
       let playing_element = this.find_playing_track_in_dom();
+      if (playing_element) return playing_element;
 
-      if (playing_element) {
-        return playing_element;
+      // 2. Try to identify the playing track from the footer and jump to it
+      const playingInfo = this.get_now_playing_info();
+      if (playingInfo) {
+        const trackIndex = this.find_track_index(playingInfo);
+        if (trackIndex !== -1) {
+          if (debug_logging)
+            console.log(
+              "[find_currently_playing_track] Jumping to index",
+              trackIndex
+            );
+
+          const containers = this.getScrollableContainers();
+          for (const container of containers) {
+            // Estimate position: header + index * rowHeight
+            // Row height is approx 56px
+            const estimatedTop = 64 + trackIndex * 56;
+
+            container.scrollTo({
+              top: Math.max(0, estimatedTop - 200), // Scroll a bit above
+              behavior: "auto",
+            });
+
+            await new Promise((r) => setTimeout(r, 150));
+
+            playing_element = this.find_playing_track_in_dom();
+            if (playing_element) return playing_element;
+
+            // Try a small scan around the area
+            for (let offset of [-300, 300, 600]) {
+              container.scrollBy({ top: offset, behavior: "auto" });
+              await new Promise((r) => setTimeout(r, 100));
+              playing_element = this.find_playing_track_in_dom();
+              if (playing_element) return playing_element;
+            }
+          }
+        }
       }
 
-      // If not found, start from top and scroll down quickly
-      const playlist_container = this.resolveTracklistScrollContainer();
-      if (!playlist_container) {
-        console.warn("Could not find playlist container for scrolling");
+      // 3. Fallback: Scan all containers from top to bottom
+      const containers = this.getScrollableContainers();
+      if (containers.length === 0) {
+        console.warn("Could not find any scrollable containers");
         return null;
       }
 
-      // Start at the top of the playlist
-      playlist_container.scrollTo({
-        top: 0,
-        behavior: "auto",
-      });
-
-      // Wait for initial load
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Check if it's at the top
-      playing_element = this.find_playing_track_in_dom();
-      if (playing_element) {
-        return playing_element;
+      if (debug_logging) {
+        console.log(
+          `[find_currently_playing_track] Found ${containers.length} containers`
+        );
       }
 
-      // Get scroll parameters
-      const total_height = playlist_container.scrollHeight;
-      const viewport_height = playlist_container.clientHeight;
-      const max_scroll = total_height - viewport_height;
+      for (const container of containers) {
+        if (debug_logging) {
+          console.log(
+            "[find_currently_playing_track] Scanning container:",
+            container
+          );
+        }
 
-      // Scroll down in larger increments for speed
-      const scroll_increment = viewport_height * 0.8; // Scroll 80% of viewport at a time
-      let current_scroll = 0;
-
-      while (current_scroll < max_scroll) {
-        current_scroll = Math.min(
-          current_scroll + scroll_increment,
-          max_scroll
-        );
-
-        playlist_container.scrollTo({
-          top: current_scroll,
+        // Start from top
+        container.scrollTo({
+          top: 0,
           behavior: "auto",
         });
 
-        // Shorter wait time for faster scanning
+        // Wait for initial load
         await new Promise((resolve) => setTimeout(resolve, 100));
 
+        // Check if it's at the top
         playing_element = this.find_playing_track_in_dom();
         if (playing_element) {
+          return playing_element;
+        }
+
+        // Get scroll parameters
+        const total_height = container.scrollHeight;
+        const viewport_height = container.clientHeight;
+
+        // Skip if not scrollable
+        if (total_height <= viewport_height) {
+          continue;
+        }
+
+        const max_scroll = total_height - viewport_height;
+
+        // Scroll down in larger increments for speed
+        const scroll_increment = viewport_height * 0.9; // Scroll 90% of viewport
+        let current_scroll = 0;
+        let found_in_this_container = false;
+
+        while (current_scroll < max_scroll) {
+          current_scroll = Math.min(
+            current_scroll + scroll_increment,
+            max_scroll
+          );
+
+          container.scrollTo({
+            top: current_scroll,
+            behavior: "auto",
+          });
+
+          // Wait for virtualization to render - reduced time
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          playing_element = this.find_playing_track_in_dom();
+          if (playing_element) {
+            found_in_this_container = true;
+            break;
+          }
+        }
+
+        if (found_in_this_container) {
           return playing_element;
         }
       }
@@ -1259,16 +1262,53 @@
       return null;
     },
 
+    get_now_playing_info() {
+      // Try to get track name from the Now Playing widget in the footer
+      const titleEl = document.querySelector(
+        '[data-testid="context-item-info-title"]'
+      );
+      if (!titleEl) return null;
+
+      const title = titleEl.textContent || "";
+      // Artist is usually in a sibling or child
+      const artistEl = document.querySelector(
+        '[data-testid="context-item-info-artist"]'
+      );
+      const artist = artistEl ? artistEl.textContent : "";
+
+      return { title, artist };
+    },
+
+    find_track_index(info) {
+      if (!info || !info.title) return -1;
+
+      const clean = (s) => (s || "").toLowerCase().trim();
+      const targetTitle = clean(info.title);
+      const targetArtist = clean(info.artist);
+
+      return playlist_songs.findIndex((song) => {
+        if (clean(song.name) !== targetTitle) return false;
+        // If artist is available, check it too (loose match)
+        if (targetArtist && song.artists) {
+          return song.artists.some((a) => targetArtist.includes(clean(a.name)));
+        }
+        return true;
+      });
+    },
+
     find_playing_track_in_dom() {
-      // Look for a button with aria-label="Pause" within tracklist rows
-      const pause_buttons = document.querySelectorAll(
-        'div[data-testid="tracklist-row"] button[aria-label="Pause"]'
+      // Look for a button with aria-label containing "Pause" within tracklist rows
+      const buttons = document.querySelectorAll(
+        'div[data-testid="tracklist-row"] button'
       );
 
-      for (const button of pause_buttons) {
-        const row = button.closest('div[role="row"]');
-        if (row) {
-          return row;
+      for (const button of buttons) {
+        const label = button.getAttribute("aria-label");
+        if (label && label.includes("Pause")) {
+          const row = button.closest('div[role="row"]');
+          if (row) {
+            return row;
+          }
         }
       }
 
