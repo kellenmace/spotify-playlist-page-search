@@ -9,18 +9,18 @@
   const SCOPES = "playlist-read-private playlist-read-collaborative";
 
   // Track pending auth flow for tab-based OAuth fallback
-  let pendingAuthFlow = null;
+  let pending_auth_flow = null;
 
   // Use the proper redirect URI format for Chrome Identity API
-  function getRedirectURI() {
-    const redirectUri = chrome.identity.getRedirectURL();
-    return redirectUri;
+  function get_redirect_uri() {
+    const redirect_uri = chrome.identity.getRedirectURL();
+    return redirect_uri;
   }
 
   // Fallback redirect URI for tab-based authentication
-  function getFallbackRedirectURI() {
-    const redirectUri = `chrome-extension://${chrome.runtime.id}/`;
-    return redirectUri;
+  function get_fallback_redirect_uri() {
+    const redirect_uri = `chrome-extension://${chrome.runtime.id}/`;
+    return redirect_uri;
   }
 
   // Utility functions for PKCE
@@ -43,37 +43,37 @@
   }
 
   // Alternative method when launchWebAuthFlow fails
-  async function openAuthPageInTab(client_id, code_challenge, state) {
+  async function open_auth_page_in_tab(client_id, code_challenge, state) {
     // Create a promise that will be resolved when the auth flow completes
-    if (pendingAuthFlow) {
-      pendingAuthFlow.reject(
+    if (pending_auth_flow) {
+      pending_auth_flow.reject(
         new Error("Authentication flow was interrupted by a new request")
       );
     }
 
-    const flowPromise = new Promise((resolve, reject) => {
-      pendingAuthFlow = { resolve, reject, state };
+    const flow_promise = new Promise((resolve, reject) => {
+      pending_auth_flow = { resolve, reject, state };
 
       // Add timeout to prevent hanging indefinitely
       setTimeout(() => {
-        if (pendingAuthFlow && pendingAuthFlow.state === state) {
+        if (pending_auth_flow && pending_auth_flow.state === state) {
           console.error("OAuth flow timed out after 5 minutes");
-          pendingAuthFlow.reject(
+          pending_auth_flow.reject(
             new Error(
               "OAuth flow timed out - user may have closed the tab or denied authorization"
             )
           );
-          pendingAuthFlow = null;
+          pending_auth_flow = null;
         }
       }, 5 * 60 * 1000); // 5 minutes timeout
     });
 
     // Build authorization URL with fallback redirect URI
-    const fallbackRedirectUri = getFallbackRedirectURI();
+    const fallback_redirect_uri = get_fallback_redirect_uri();
     const auth_params = new URLSearchParams({
       client_id: client_id,
       response_type: "code",
-      redirect_uri: fallbackRedirectUri,
+      redirect_uri: fallback_redirect_uri,
       code_challenge_method: "S256",
       code_challenge: code_challenge,
       state: state,
@@ -84,21 +84,21 @@
     const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
 
     // The promise will be resolved by the onBeforeNavigate listener when it detects the redirect
-    return flowPromise;
+    return flow_promise;
   }
 
   // Set up a listener for navigation to the redirect URI
   chrome.webNavigation.onBeforeNavigate.addListener(
     function (details) {
       // Only process main frame navigation (not iframes)
-      const identityRedirectUri = chrome.identity.getRedirectURL();
-      const fallbackRedirectUri = getFallbackRedirectURI();
+      const identity_redirect_uri = chrome.identity.getRedirectURL();
+      const fallback_redirect_uri = get_fallback_redirect_uri();
 
       if (
         details.frameId === 0 &&
-        pendingAuthFlow && // Only process if a fallback flow is active
-        (details.url.startsWith(identityRedirectUri) ||
-          details.url.startsWith(fallbackRedirectUri))
+        pending_auth_flow && // Only process if a fallback flow is active
+        (details.url.startsWith(identity_redirect_uri) ||
+          details.url.startsWith(fallback_redirect_uri))
       ) {
         try {
           // Extract parameters from the URL (check both search params and hash params)
@@ -107,8 +107,8 @@
 
           // If no search params, try hash params (some OAuth flows use hash)
           if (!params.has("code") && !params.has("error") && url.hash) {
-            const hashParams = url.hash.substring(1);
-            params = new URLSearchParams(hashParams);
+            const hash_params = url.hash.substring(1);
+            params = new URLSearchParams(hash_params);
           }
 
           const code = params.get("code");
@@ -116,27 +116,27 @@
           const error = params.get("error");
 
           // Find and resolve the pending auth flow
-          if (pendingAuthFlow) {
+          if (pending_auth_flow) {
             if (error) {
               console.error("OAuth error detected:", error);
-              pendingAuthFlow.reject(new Error(`OAuth error: ${error}`));
+              pending_auth_flow.reject(new Error(`OAuth error: ${error}`));
             } else if (!code) {
               console.error("No authorization code received");
-              pendingAuthFlow.reject(
+              pending_auth_flow.reject(
                 new Error("No authorization code received")
               );
-            } else if (state !== pendingAuthFlow.state) {
+            } else if (state !== pending_auth_flow.state) {
               console.error("State parameter mismatch:", {
-                expected: pendingAuthFlow.state,
+                expected: pending_auth_flow.state,
                 received: state,
               });
-              pendingAuthFlow.reject(new Error("State parameter mismatch"));
+              pending_auth_flow.reject(new Error("State parameter mismatch"));
             } else {
-              pendingAuthFlow.resolve({ code, state });
+              pending_auth_flow.resolve({ code, state });
             }
 
             // Clear the pending auth flow
-            pendingAuthFlow = null;
+            pending_auth_flow = null;
 
             // Close the tab
             chrome.tabs.remove(details.tabId);
@@ -147,9 +147,9 @@
           }
         } catch (e) {
           console.error("Error processing navigation:", e);
-          if (pendingAuthFlow) {
-            pendingAuthFlow.reject(e);
-            pendingAuthFlow = null;
+          if (pending_auth_flow) {
+            pending_auth_flow.reject(e);
+            pending_auth_flow = null;
           }
         }
       }
@@ -166,10 +166,10 @@
   async function initiate_oauth_flow(client_id) {
     try {
       // Get the redirect URI from Chrome Identity API
-      let REDIRECT_URI = getRedirectURI();
+      let redirect_uri = get_redirect_uri();
 
       // Log both URIs for easy copy/paste to Spotify settings
-      const fallbackURI = getFallbackRedirectURI();
+      const fallback_uri = get_fallback_redirect_uri();
 
       // Validate client ID
       if (!client_id || client_id.trim() === "") {
@@ -191,7 +191,7 @@
       const auth_params = new URLSearchParams({
         client_id: client_id,
         response_type: "code",
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirect_uri,
         code_challenge_method: "S256",
         code_challenge: code_challenge,
         state: state,
@@ -222,7 +222,7 @@
         console.error("Chrome Identity API failed:", identity_error);
         // Fallback to tab-based authentication
         try {
-          const result = await openAuthPageInTab(
+          const result = await open_auth_page_in_tab(
             client_id,
             code_challenge,
             state
@@ -231,7 +231,7 @@
           returned_state = result.state;
           error_param = null;
           // Update REDIRECT_URI for token exchange to use fallback URI
-          REDIRECT_URI = getFallbackRedirectURI();
+          redirect_uri = get_fallback_redirect_uri();
         } catch (tab_error) {
           console.error("Tab-based authentication failed:", tab_error);
           throw new Error(`Authentication failed: ${tab_error.message}`);
@@ -253,7 +253,7 @@
         client_id,
         authorization_code,
         code_verifier,
-        REDIRECT_URI
+        redirect_uri
       );
 
       // Reload any active Spotify playlist tabs to refresh authentication state
@@ -269,19 +269,19 @@
       });
 
       // Provide specific guidance for redirect URI issues
-      const identityRedirectUri = chrome.identity.getRedirectURL();
-      const fallbackRedirectUri = getFallbackRedirectURI();
-      const additionalInfo = error.message.includes(
+      const identity_redirect_uri = chrome.identity.getRedirectURL();
+      const fallback_redirect_uri = get_fallback_redirect_uri();
+      const additional_info = error.message.includes(
         "Authorization page could not be loaded"
       )
-        ? `\n\nThis error often means the redirect URI is not properly configured in your Spotify app. Please ensure your Spotify app's redirect URI includes both:\n1. ${identityRedirectUri} (for Chrome Identity API)\n2. ${fallbackRedirectUri} (for tab-based fallback)`
+        ? `\n\nThis error often means the redirect URI is not properly configured in your Spotify app. Please ensure your Spotify app's redirect URI includes both:\n1. ${identity_redirect_uri} (for Chrome Identity API)\n2. ${fallback_redirect_uri} (for tab-based fallback)`
         : "";
 
       return {
         success: false,
-        error: error.message + additionalInfo,
-        identityRedirectUri: identityRedirectUri,
-        fallbackRedirectUri: fallbackRedirectUri,
+        error: error.message + additional_info,
+        identity_redirect_uri: identity_redirect_uri,
+        fallback_redirect_uri: fallback_redirect_uri,
       };
     } finally {
       // Clean up temporary PKCE parameters
