@@ -11,7 +11,6 @@
   let keyboard_navigation_enabled = false;
   let selected_result_index = -1;
   let filtered_songs = [];
-  let debug_logging = true; // Toggle verbose diagnostics for scrolling
 
   const playlist_search = {
     init() {
@@ -664,8 +663,6 @@
         if (track_element) {
           this.click_track_play_button(track_element, track_id);
           track_element.scrollIntoView({ behavior: "smooth", block: "center" });
-        } else {
-          console.warn("Track not found after all strategies:", track_id);
         }
       } catch (error) {
         console.warn("Could not find/highlight track:", error);
@@ -694,35 +691,11 @@
 
         seen.add(el);
         results.push(el);
-        if (debug_logging) {
-          const sh = el.scrollHeight,
-            ch = el.clientHeight;
-          console.log(
-            "[get_scrollable_containers] add",
-            origin,
-            "scrollH",
-            sh,
-            "clientH",
-            ch,
-            "ratio",
-            ch ? (sh / ch).toFixed(2) : "n/a"
-          );
-        }
       };
-      const base_selectors = [
-        '[data-testid="playlist-tracklist"] [data-overlayscrollbars-viewport]',
-        '[data-testid="playlist-tracklist"] .os-viewport',
-        ".main-view-container__scroll-node",
-        ".main-view-container .os-viewport",
-        "[data-overlayscrollbars-viewport]",
-        ".os-viewport",
-        'main[role="main"]',
-        "main",
-        ".main-view-container",
-      ];
-      base_selectors.forEach((sel) => {
-        document.querySelectorAll(sel).forEach((el) => push_unique(el, sel));
-      });
+      const base_selector = "[data-overlayscrollbars-viewport]";
+      document
+        .querySelectorAll(base_selector)
+        .forEach((el) => push_unique(el, base_selector));
 
       // Filter out non-scrollable
       const filtered = results.filter((el) => {
@@ -749,10 +722,9 @@
         const rb = b.scrollHeight / (b.clientHeight || 1);
         return rb - ra;
       });
+
       return filtered;
     },
-
-    // Removed experimental materializeTrackRow & getPrimaryTracklistScrollContainer (rollback)
 
     click_track_play_button(track_element, track_id) {
       try {
@@ -801,7 +773,6 @@
       }
       const containers = this.get_scrollable_containers();
       if (containers.length === 0) {
-        console.warn("No scrollable containers discovered");
         return;
       }
       // Attempt to derive row height from a visible track row
@@ -835,21 +806,6 @@
         ) {
           continue;
         }
-        if (debug_logging)
-          console.log(
-            "[scroll_to_load_track] attempt container",
-            container.className || container.id || container.tagName,
-            "index",
-            track_index,
-            "targetOffset",
-            target_offset,
-            "rowHeight",
-            row_height,
-            "sh/ch",
-            container.scrollHeight,
-            "/",
-            container.clientHeight
-          );
         container.scrollTo({
           top: Math.max(target_offset - container.clientHeight / 2, 0),
           behavior: "auto",
@@ -946,8 +902,6 @@
       return candidates;
     },
 
-    // Removed ensureTrackVisible & waitShort (rollback)
-
     find_playlist_container() {
       // Try the overlayscrollbars viewport first
       const overlay_viewport = document.querySelector(
@@ -1026,7 +980,6 @@
         return document.body;
       }
 
-      console.warn("Could not find any playlist scroll container");
       return null;
     },
 
@@ -1039,7 +992,6 @@
       const header_height = 64;
       const containers = this.get_scrollable_containers();
       if (containers.length === 0) {
-        console.warn("No containers for wait_for_track_and_find");
         return null;
       }
       let container_index = 0;
@@ -1047,13 +999,6 @@
       const advance_container = () => {
         container_index = (container_index + 1) % containers.length;
         playlist_container = containers[container_index];
-        if (debug_logging)
-          console.log(
-            "[wait_for_track_and_find] switching container to",
-            playlist_container.className ||
-              playlist_container.id ||
-              playlist_container.tagName
-          );
       };
 
       let last_scroll_top = -1;
@@ -1103,21 +1048,14 @@
               });
             }
             if (Math.abs(playlist_container.scrollTop - last_scroll_top) < 5) {
-              if (debug_logging)
-                console.warn("[wait_for_track_and_find] stagnation");
               advance_container();
             }
             last_scroll_top = playlist_container.scrollTop;
           }
 
           attempt++;
+
           if (Date.now() - start > timeout || attempt > max_attempts) {
-            console.error(
-              "Timeout after",
-              attempt,
-              "attempts. Final scroll position:",
-              playlist_container.scrollTop
-            );
             clearInterval(interval);
             reject(new Error("Timeout finding track"));
           }
@@ -1164,12 +1102,6 @@
       if (playing_info) {
         const track_index = this.find_track_index(playing_info);
         if (track_index !== -1) {
-          if (debug_logging)
-            console.log(
-              "[find_currently_playing_track] Jumping to index",
-              track_index
-            );
-
           const containers = this.get_scrollable_containers();
           for (const container of containers) {
             // Estimate position: header + index * rowHeight
@@ -1200,24 +1132,10 @@
       // 3. Fallback: Scan all containers from top to bottom
       const containers = this.get_scrollable_containers();
       if (containers.length === 0) {
-        console.warn("Could not find any scrollable containers");
         return null;
       }
 
-      if (debug_logging) {
-        console.log(
-          `[find_currently_playing_track] Found ${containers.length} containers`
-        );
-      }
-
       for (const container of containers) {
-        if (debug_logging) {
-          console.log(
-            "[find_currently_playing_track] Scanning container:",
-            container
-          );
-        }
-
         // Start from top
         container.scrollTo({
           top: 0,

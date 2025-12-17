@@ -68,21 +68,6 @@
       }, 5 * 60 * 1000); // 5 minutes timeout
     });
 
-    // Build authorization URL with fallback redirect URI
-    const fallback_redirect_uri = get_fallback_redirect_uri();
-    const auth_params = new URLSearchParams({
-      client_id: client_id,
-      response_type: "code",
-      redirect_uri: fallback_redirect_uri,
-      code_challenge_method: "S256",
-      code_challenge: code_challenge,
-      state: state,
-      scope: SCOPES,
-      show_dialog: "true",
-    });
-
-    const auth_url = `${SPOTIFY_AUTHORIZE_URL}?${auth_params.toString()}`;
-
     // The promise will be resolved by the onBeforeNavigate listener when it detects the redirect
     return flow_promise;
   }
@@ -167,9 +152,6 @@
     try {
       // Get the redirect URI from Chrome Identity API
       let redirect_uri = get_redirect_uri();
-
-      // Log both URIs for easy copy/paste to Spotify settings
-      const fallback_uri = get_fallback_redirect_uri();
 
       // Validate client ID
       if (!client_id || client_id.trim() === "") {

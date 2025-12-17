@@ -122,8 +122,6 @@
         } else {
           const error_msg =
             response?.error || "OAuth flow failed - no error details provided";
-          const identityRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
-          const fallbackRedirectUri = `chrome-extension://${chrome.runtime.id}/`;
 
           throw new Error(error_msg);
         }
