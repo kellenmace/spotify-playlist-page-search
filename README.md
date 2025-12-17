@@ -34,7 +34,7 @@ Create a Spotify app at https://developer.spotify.com/dashboard using the field 
 
 - App name: "Spotify Playlist Page Search"
 - App description: "Spotify Playlist Page Search Google Chrome extension"
-- Redirect URIs: "chrome-extension://pdchbnnadgiagmpcakgfjopkglpechek/oauth-callback"
+- Redirect URIs: "https://pdchbnnadgiagmpcakgfjopkglpechek.chromiumapp.org/"
 - Which API/SDKs are you planning to use?: Check the "Web API" box
 
 Click the Save button, then copy the Client ID for the Spotify app you created.
@@ -43,7 +43,7 @@ Click the Save button, then copy the Client ID for the Spotify app you created.
 
 - In the web browser, click the extension icon to open the popup.
 - Paste in your Spotify app's Client ID and click the button to save it.
-- Click the "Connect to Spotify" button
+- Click the "Connect to Spotify" button.
 
 The Spotify Playlist Page Search extension will then be connected to your Spotify app and you can begin using it.
 
@@ -53,6 +53,6 @@ The Spotify Playlist Page Search extension will then be connected to your Spotif
 
 This extension only uses the connected Spotify app for one thing: to fetch the list of songs for the current playlist. This is necessary to get each song title, artist, album, and links that the extension displays in its search popup.
 
-> How do I customize the keyboard shortcut?
+> How can I customize the keyboard shortcut?
 
 This extension provides a ctrl/cmd + shift + s keyboard shortcut you can use to show/hide the search popup. To customize the keyboard shortcut to something else, go to the Chrome "Keyboard shortcuts" page by navigating to `chrome://extensions/shortcuts` in a browser tab. Find the "Spotify Playlist Page Search" extension on the list and click the pencil icon to set your own custom keyboard shortcut.

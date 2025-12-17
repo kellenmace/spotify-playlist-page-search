@@ -211,6 +211,7 @@
           url: auth_url,
           interactive: true,
         });
+        console.log({ redirect_url });
         if (redirect_url) {
           const parsed_url = new URL(redirect_url);
           const url_params = new URLSearchParams(parsed_url.search);
