@@ -44,8 +44,9 @@ Click the Save button, then copy the Client ID for the Spotify app you created.
 - In the web browser, click the extension icon to open the popup.
 - Paste in your Spotify app's Client ID and click the button to save it.
 - Click the "Connect to Spotify" button.
+- In the Spotify page that is displayed, click the "Agree" button to allow the extension to connect to your Spotify app.
 
-The Spotify Playlist Page Search extension will then be connected to your Spotify app and you can begin using it.
+The Spotify Playlist Page Search extension will now be connected to your Spotify app and you can begin using it.
 
 ## FAQ
 
