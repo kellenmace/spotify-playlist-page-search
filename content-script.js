@@ -382,7 +382,7 @@
       on_page_fetched = null
     ) {
       const all_tracks = [];
-      let next_url = `https://api.spotify.com/v1/playlists/${playlist_id}/tracks?limit=50`;
+      let next_url = `https://api.spotify.com/v1/playlists/${playlist_id}/items?limit=50`;
 
       while (next_url) {
         const response = await fetch(next_url, {
