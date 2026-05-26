@@ -8,9 +8,11 @@
 
 ## Description
 
-The native Spotify Web Player does not allow users to search for songs within a playlist. This extension adds that missing search feature. It also provides a convenient "Jump to playing song" button.
+The native Spotify Web Player does not allow users to search for songs within a playlist. This extension adds that missing search feature.
 
-## How to Use
+Note that a Spotify Premium account is required for this extension to work.
+
+HOW TO USE:
 
 1. Visit any playlist page
 2. Click the magnifying glass icon or press the keyboard shortcut (alt/option + shift + s) to perform a search
@@ -18,13 +20,13 @@ The native Spotify Web Player does not allow users to search for songs within a 
 4. Click or press Enter on the song you want to play
 5. That song is immediately scrolled into view and starts playing
 
-You can also click the "Jump to playing song" button to scroll the currently playing song into view.
+A convenient "Jump to playing song" button is also provided. You can click it to scroll the currently playing song into view (see screenshot).
 
-## Initial Setup
+INITIAL SETUP
 
 In order for this extension to be able to access the list of songs that exist within the playlist, it needs to be connected to Spotify by following the steps below.
 
-### 1. Create an app
+1. Create an app
 
 Create an app at https://developer.spotify.com/dashboard using the field values below:
 
@@ -35,7 +37,9 @@ Create an app at https://developer.spotify.com/dashboard using the field values 
 
 Click the Save button, then copy the Client ID for the app you created.
 
-### 2. Connect the extension
+Note that in order to create a new developer application, you must have no other active Development Mode apps.
+
+2. Connect the extension
 
 - In the web browser, click the extension icon to open the popup.
 - Paste in your app's Client ID and click the button to save it.
@@ -44,7 +48,7 @@ Click the Save button, then copy the Client ID for the app you created.
 
 The extension will now be connected and you can begin using it.
 
-## FAQ
+FAQ
 
 > Why do I need to create an app for this extension to work?
 
