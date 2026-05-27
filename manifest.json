@@ -11,6 +11,8 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
+  "permissions": ["scripting", "tabs", "webNavigation"],
+  "host_permissions": ["https://open.spotify.com/*"],
   "commands": {
     "toggle-search": {
       "suggested_key": {
@@ -24,7 +26,8 @@
     {
       "matches": ["https://open.spotify.com/playlist/*"],
       "js": ["content-script.js"],
-      "css": ["content-script.css"]
+      "css": ["content-script.css"],
+      "run_at": "document_start"
     }
   ],
   "background": {

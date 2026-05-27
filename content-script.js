@@ -1,6 +1,15 @@
 (function () {
   "use strict";
 
+  const installed_key = "__spotify_playlist_page_search_content_script__";
+
+  if (window[installed_key]) {
+    playlist_search_handle_reinjection();
+    return;
+  }
+
+  window[installed_key] = true;
+
   const pathfinder_message_type =
     "spotify-playlist-page-search:pathfinder-response";
 
@@ -8,6 +17,7 @@
   let current_playlist_id = null;
   let search_modal = null;
   let navigation_timeout = null;
+  let ui_injection_timeout = null;
   let keyboard_navigation_enabled = false;
   let selected_result_index = -1;
   let filtered_tracks = [];
@@ -26,31 +36,33 @@
     },
 
     inject_search_button() {
-      const existing_search_button = document.querySelector(
+      const action_bar = document.querySelector(
+        'div[data-testid="action-bar-row"]',
+      );
+
+      if (!action_bar) {
+        schedule_ui_injection();
+        return;
+      }
+
+      const existing_action_bar_button = action_bar.querySelector(
         ".spotify-playlist-search-button",
       );
 
-      if (existing_search_button) {
-        existing_search_button.remove();
+      if (existing_action_bar_button) {
+        return;
       }
 
-      let target_element = document.querySelector(
-        'button[data-testid="more-button"]',
-      );
+      document
+        .querySelectorAll(".spotify-playlist-search-button")
+        .forEach((button) => button.remove());
 
-      if (!target_element) {
-        const action_bar = document.querySelector(
-          'div[data-testid="action-bar-row"]',
-        );
-
-        if (action_bar) {
-          const buttons = action_bar.querySelectorAll("button");
-          target_element = buttons[buttons.length - 1];
-        }
-      }
+      const target_element =
+        action_bar.querySelector('button[data-testid="more-button"]') ||
+        action_bar.querySelector("button:last-of-type");
 
       if (!target_element || !target_element.parentNode) {
-        setTimeout(() => this.inject_search_button(), 1000);
+        schedule_ui_injection();
         return;
       }
 
@@ -746,6 +758,7 @@
     clearTimeout(navigation_timeout);
     navigation_timeout = setTimeout(() => {
       if (window.location.href === current_url) {
+        schedule_ui_injection();
         return;
       }
 
@@ -753,8 +766,23 @@
 
       if (get_playlist_id_from_url() !== current_playlist_id) {
         playlist_search.reset_for_navigation();
+        return;
       }
+
+      schedule_ui_injection();
     }, 100);
+  }
+
+  function schedule_ui_injection() {
+    if (!get_playlist_id_from_url() || ui_injection_timeout) {
+      return;
+    }
+
+    ui_injection_timeout = setTimeout(() => {
+      ui_injection_timeout = null;
+      playlist_search.inject_search_button();
+      playlist_search.inject_jump_to_playing_button();
+    }, 300);
   }
 
   function handle_page_message(event) {
@@ -1287,7 +1315,16 @@
   window.addEventListener("message", handle_page_message);
 
   const observer = new MutationObserver(handle_navigation);
-  observer.observe(document.body, { childList: true, subtree: true });
+  start_dom_observer();
+
+  window.spotify_playlist_page_search_reinject = function reinject() {
+    if (get_playlist_id_from_url() !== current_playlist_id) {
+      playlist_search.reset_for_navigation();
+      return;
+    }
+
+    schedule_ui_injection();
+  };
 
   chrome.runtime.onMessage.addListener((request, sender, send_response) => {
     if (request.action === "toggle-search") {
@@ -1295,4 +1332,27 @@
       send_response({ success: true });
     }
   });
+
+  function start_dom_observer() {
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+      return;
+    }
+
+    document.addEventListener(
+      "DOMContentLoaded",
+      () => {
+        if (document.body) {
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
+      },
+      { once: true },
+    );
+  }
+
+  function playlist_search_handle_reinjection() {
+    if (typeof window.spotify_playlist_page_search_reinject === "function") {
+      window.spotify_playlist_page_search_reinject();
+    }
+  }
 })();
