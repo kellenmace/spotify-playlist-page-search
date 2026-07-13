@@ -202,7 +202,7 @@
   display: grid;
   font: inherit;
   gap: 12px;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 48px 1fr auto auto;
   padding: 12px 24px;
   text-align: left;
   transition: background-color 0.2s ease;
@@ -299,6 +299,28 @@
 }
 
 .spotify-playlist-search-close svg {
+  height: 16px;
+  width: 16px;
+}
+
+.spotify-playlist-search-song-queue {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  height: 32px;
+  padding: 0;
+  transition: background-color 0.2s ease;
+  width: 32px;
+  border-radius: 50%;
+}
+
+.spotify-playlist-search-song-queue:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.spotify-playlist-search-song-queue svg {
   height: 16px;
   width: 16px;
 }
