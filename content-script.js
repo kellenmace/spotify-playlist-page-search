@@ -70,6 +70,16 @@
         this.create_search_button(),
         target_element,
       );
+
+      const target_element2 =
+        document.querySelector('div[data-testid="topbar-content"]')
+
+      if (!target_element2) {
+        schedule_ui_injection();
+        return;
+      }
+
+      target_element2.appendChild(this.create_search_button());
     },
 
     create_search_button() {
@@ -346,11 +356,28 @@
         <span class="spotify-playlist-search-song-album">
           ${escape_html(track.album || "")}
         </span>
+        <button class="spotify-playlist-search-song-queue">
+          <svg fill="white" viewBox="0 0 16 16"><path d="M16 15H2v-1.5h14zm0-4.5H2V9h14zm-8.034-6A5.5 5.5 0 0 1 7.187 6H13.5a2.5 2.5 0 0 0 0-5H7.966c.159.474.255.978.278 1.5H13.5a1 1 0 1 1 0 2zM2 2V0h1.5v2h2v1.5h-2v2H2v-2H0V2z"></path></svg>
+        </button>
       `;
 
       track_element.addEventListener("click", async () => {
         this.select_track(track);
       });
+
+      track_element.querySelector(".spotify-playlist-search-song-queue").addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const track_element = await this.find_or_scroll_to_track_element(track);
+        track_element?.querySelector('button[data-testid="more-button"]').click();
+        
+        setTimeout(() => {
+          document.querySelector('#context-menu path[d="M16 15H2v-1.5h14zm0-4.5H2V9h14zm-8.034-6A5.5 5.5 0 0 1 7.187 6H13.5a2.5 2.5 0 0 0 0-5H7.966c.159.474.255.978.278 1.5H13.5a1 1 0 1 1 0 2zM2 2V0h1.5v2h2v1.5h-2v2H2v-2H0V2z"]')?.parentElement?.parentElement?.click();
+
+          search_modal.close();
+          this.jump_to_currently_playing_track()
+        }, 100);
+
+      })
 
       return track_element;
     },
