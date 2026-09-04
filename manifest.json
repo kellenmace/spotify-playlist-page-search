@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Spotify Playlist Page Search",
   "version": "2.0.0",
-  "description": "Search for songs within Spotify playlists",
+  "description": "Search for songs within Spotify playlists and Liked Songs",
   "author": "Kellen Mace",
   "homepage_url": "https://github.com/kellenmace/spotify-playlist-page-search/",
   "icons": {
@@ -19,13 +19,16 @@
         "default": "Alt+Shift+S",
         "mac": "Alt+Shift+S"
       },
-      "description": "Toggle playlist search modal"
+      "description": "Toggle playlist or Liked Songs search modal"
     }
   },
   "content_scripts": [
     {
-      "matches": ["https://open.spotify.com/playlist/*"],
-      "js": ["content-script.js"],
+      "matches": [
+        "https://open.spotify.com/playlist/*",
+        "https://open.spotify.com/collection/tracks*"
+      ],
+      "js": ["track-index.js", "content-script.js"],
       "css": ["content-script.css"],
       "run_at": "document_start"
     }

@@ -37,7 +37,7 @@
       currentWindow: true,
     });
 
-    if (!tab || !tab.id || !is_spotify_playlist_url(tab.url)) {
+    if (!tab || !tab.id || !is_supported_spotify_page_url(tab.url)) {
       return;
     }
 
@@ -51,7 +51,7 @@
   });
 
   async function inject_playlist_search(tab_id, url) {
-    if (!tab_id || !is_spotify_playlist_url(url)) {
+    if (!tab_id || !is_supported_spotify_page_url(url)) {
       return;
     }
 
@@ -63,16 +63,33 @@
 
       await chrome.scripting.executeScript({
         target: { tabId: tab_id },
-        files: ["content-script.js"],
+        files: ["track-index.js", "content-script.js"],
       });
     } catch (error) {
       // Spotify tabs can close or navigate while the extension is injecting.
     }
   }
 
-  function is_spotify_playlist_url(url) {
-    return Boolean(
-      url && url.startsWith("https://open.spotify.com/playlist/"),
+  function is_supported_spotify_page_url(url) {
+    if (!url) {
+      return false;
+    }
+
+    let parsed_url;
+
+    try {
+      parsed_url = new URL(url);
+    } catch (error) {
+      return false;
+    }
+
+    if (parsed_url.origin !== "https://open.spotify.com") {
+      return false;
+    }
+
+    return (
+      parsed_url.pathname.startsWith("/playlist/") ||
+      parsed_url.pathname === "/collection/tracks"
     );
   }
 })();

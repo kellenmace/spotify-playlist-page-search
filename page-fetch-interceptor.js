@@ -15,7 +15,7 @@
   window[installed_key] = true;
 
   const original_fetch = window.fetch;
-  const playlist_states = new Map();
+  const page_states = new Map();
 
   window.fetch = async function spotify_playlist_page_search_fetch(
     input,
@@ -26,8 +26,8 @@
 
     if (is_pathfinder_request(request_info)) {
       inspect_response(request_info, response);
-      maybe_store_fetch_playlist_contents_request(request_info);
-      maybe_start_quiet_indexing(request_info.playlist_id);
+      maybe_store_page_request(request_info);
+      maybe_start_quiet_indexing(request_info.page_identity);
     }
 
     return response;
@@ -52,6 +52,7 @@
     const body_json = parse_json(body_text);
     const variables = normalize_variables(body_json?.variables);
     const playlist_id = get_playlist_id_from_variables(variables);
+    const page_identity = get_page_identity(window.location.href, playlist_id);
 
     return {
       url,
@@ -71,6 +72,7 @@
       operation_name: body_json?.operationName || null,
       variables,
       playlist_id,
+      page_identity,
     };
   }
 
@@ -144,14 +146,23 @@
       .clone()
       .json()
       .then((response_json) => {
-        handle_observed_response(request_info, response_json);
-        post_pathfinder_response(request_info, response, response_json);
+        const page_identity = resolve_page_identity(
+          request_info,
+          response_json
+        );
+        const scoped_request_info = {
+          ...request_info,
+          page_identity,
+        };
+        handle_observed_response(scoped_request_info, response_json);
+        post_pathfinder_response(scoped_request_info, response, response_json);
       })
       .catch((error) => {
         post_message({
           kind: "parse-error",
           operation_name: request_info.operation_name,
           playlist_id: request_info.playlist_id,
+          page_identity: request_info.page_identity,
           status: response.status,
           error: error.message,
         });
@@ -165,6 +176,7 @@
       method: request_info.method,
       operation_name: request_info.operation_name,
       playlist_id: request_info.playlist_id,
+      page_identity: request_info.page_identity,
       variables: request_info.variables,
       quiet_replay: Boolean(request_info.quiet_replay),
       quiet_replay_offset: request_info.quiet_replay_offset ?? null,
@@ -175,47 +187,46 @@
   }
 
   function handle_observed_response(request_info, response_json) {
-    if (request_info.operation_name !== "fetchPlaylist") {
+    if (!is_operation_for_page(request_info)) {
       return;
     }
 
-    const playlist_id =
-      request_info.playlist_id || get_playlist_id_from_response(response_json);
+    const page_identity = resolve_page_identity(request_info, response_json);
 
-    if (!playlist_id) {
+    if (!page_identity) {
       return;
     }
 
-    const total_count = response_json?.data?.playlistV2?.content?.totalCount;
+    const total_count = get_page_total_count(page_identity, response_json);
 
     if (!Number.isFinite(total_count)) {
       return;
     }
 
-    const state = get_playlist_state(playlist_id);
+    const state = get_page_state(page_identity);
     state.total_count = total_count;
-    maybe_start_quiet_indexing(playlist_id);
+    maybe_start_quiet_indexing(page_identity);
   }
 
-  function maybe_store_fetch_playlist_contents_request(request_info) {
-    if (request_info.operation_name !== "fetchPlaylistContents") {
+  function maybe_store_page_request(request_info) {
+    if (!is_page_content_operation(request_info)) {
       return;
     }
 
-    if (!request_info.playlist_id || !request_info.body_json) {
+    if (!request_info.page_identity || !request_info.body_json) {
       return;
     }
 
-    const state = get_playlist_state(request_info.playlist_id);
+    const state = get_page_state(request_info.page_identity);
     state.template_request = request_info;
   }
 
-  function maybe_start_quiet_indexing(playlist_id) {
-    if (!playlist_id) {
+  function maybe_start_quiet_indexing(page_identity) {
+    if (!page_identity) {
       return;
     }
 
-    const state = get_playlist_state(playlist_id);
+    const state = get_page_state(page_identity);
 
     if (state.started || !Number.isFinite(state.total_count)) {
       return;
@@ -226,47 +237,48 @@
     }
 
     state.started = true;
-    replay_fetch_playlist_contents(state.template_request, state.total_count);
+    replay_page_contents(state.template_request, state.total_count);
   }
 
-  async function replay_fetch_playlist_contents(template_request, total_count) {
+  async function replay_page_contents(template_request, total_count) {
     const capped_total = Math.min(total_count, max_quiet_index_tracks);
+    const batch_size = get_quiet_batch_size(template_request);
     const offsets = [];
 
-    for (let offset = 0; offset < capped_total; offset += quiet_index_batch_size) {
+    for (let offset = 0; offset < capped_total; offset += batch_size) {
       offsets.push(offset);
     }
 
-    post_quiet_replay_status("started", template_request.playlist_id, {
-      playlist_total_count: total_count,
+    post_quiet_replay_status("started", template_request.page_identity, {
+      page_total_count: total_count,
       max_quiet_index_tracks,
-      batch_size: quiet_index_batch_size,
+      batch_size,
       request_count: offsets.length,
       concurrency: quiet_index_concurrency,
     });
 
     try {
       await run_with_concurrency(offsets, quiet_index_concurrency, async (offset) => {
-        await replay_fetch_playlist_contents_page(
+        await replay_page_contents_page(
           template_request,
           offset,
-          Math.min(quiet_index_batch_size, capped_total - offset)
+          Math.min(batch_size, capped_total - offset)
         );
       });
 
-      post_quiet_replay_status("completed", template_request.playlist_id, {
-        playlist_total_count: total_count,
+      post_quiet_replay_status("completed", template_request.page_identity, {
+        page_total_count: total_count,
         requested_track_count: capped_total,
       });
     } catch (error) {
-      post_quiet_replay_status("failed", template_request.playlist_id, {
+      post_quiet_replay_status("failed", template_request.page_identity, {
         reason: error.message,
-        playlist_total_count: total_count,
+        page_total_count: total_count,
       });
     }
   }
 
-  async function replay_fetch_playlist_contents_page(
+  async function replay_page_contents_page(
     template_request,
     offset,
     limit
@@ -301,6 +313,7 @@
         body_json: replay_body_json,
         variables: normalize_variables(replay_body_json.variables),
         playlist_id: template_request.playlist_id,
+        page_identity: template_request.page_identity,
         quiet_replay: true,
         quiet_replay_offset: offset,
       },
@@ -313,10 +326,21 @@
     }
   }
 
+  function get_quiet_batch_size(template_request) {
+    if (template_request.page_identity.type === "playlist") {
+      return quiet_index_batch_size;
+    }
+
+    const observed_limit = template_request.variables?.limit;
+
+    return Number.isFinite(observed_limit) && observed_limit > 0
+      ? observed_limit
+      : 50;
+  }
+
   async function run_with_concurrency(items, concurrency, worker) {
     let next_index = 0;
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
+    const workers = [...new Array(Math.min(concurrency, items.length))].map(
       async () => {
         while (next_index < items.length) {
           const item = items[next_index];
@@ -353,22 +377,26 @@
     return JSON.stringify(replay_body);
   }
 
-  function get_playlist_state(playlist_id) {
-    if (!playlist_states.has(playlist_id)) {
-      playlist_states.set(playlist_id, {
+  function get_page_state(page_identity) {
+    if (!page_states.has(page_identity.key)) {
+      page_states.set(page_identity.key, {
         started: false,
         template_request: null,
         total_count: null,
       });
     }
 
-    return playlist_states.get(playlist_id);
+    return page_states.get(page_identity.key);
   }
 
-  function post_quiet_replay_status(status, playlist_id, details) {
+  function post_quiet_replay_status(status, page_identity, details) {
     post_message({
       kind: "quiet-replay-status",
-      playlist_id,
+      page_identity,
+      operation_name:
+        page_identity.type === "liked-songs"
+          ? "fetchLibraryTracks"
+          : "fetchPlaylistContents",
       status,
       details,
     });
@@ -423,6 +451,59 @@
     }
 
     return null;
+  }
+
+  function get_page_identity(url_value, playlist_id) {
+    const url = new URL(url_value);
+
+    if (url.pathname === "/collection/tracks") {
+      return { key: "liked-songs", type: "liked-songs" };
+    }
+
+    if (!url.pathname.startsWith("/playlist/") || !playlist_id) {
+      return null;
+    }
+
+    return {
+      key: `playlist:${playlist_id}`,
+      playlist_id,
+      type: "playlist",
+    };
+  }
+
+  function resolve_page_identity(request_info, response_json) {
+    if (request_info.page_identity?.type === "liked-songs") {
+      return request_info.page_identity;
+    }
+
+    const playlist_id =
+      request_info.playlist_id || get_playlist_id_from_response(response_json);
+
+    return get_page_identity(window.location.href, playlist_id);
+  }
+
+  function is_operation_for_page(request_info) {
+    if (request_info.page_identity?.type === "liked-songs") {
+      return request_info.operation_name === "fetchLibraryTracks";
+    }
+
+    return request_info.operation_name === "fetchPlaylist";
+  }
+
+  function is_page_content_operation(request_info) {
+    if (request_info.page_identity?.type === "liked-songs") {
+      return request_info.operation_name === "fetchLibraryTracks";
+    }
+
+    return request_info.operation_name === "fetchPlaylistContents";
+  }
+
+  function get_page_total_count(page_identity, response_json) {
+    if (page_identity.type === "liked-songs") {
+      return response_json?.data?.me?.library?.tracks?.totalCount;
+    }
+
+    return response_json?.data?.playlistV2?.content?.totalCount;
   }
 
   function parse_json(text) {

@@ -8,11 +8,11 @@
 
 ## Description
 
-The native Spotify Web Player does not allow users to search for songs within a playlist. This extension adds that missing search feature.
+The native Spotify Web Player does not allow users to search for songs within a playlist or the full Liked Songs collection. This extension adds that missing search feature.
 
 HOW TO USE
 
-1. Visit any playlist page
+1. Visit any playlist page or the Liked Songs page
 2. Click the magnifying glass icon or press the keyboard shortcut (alt/option + shift + s) to search
 3. Search for a song by title, artist, or album
 4. Click or press Enter on the song you want to play
@@ -26,6 +26,6 @@ FAQ
 
 This extension provides an alt/option + shift + s keyboard shortcut you can use to show/hide the search modal. To customize the keyboard shortcut, go to the Chrome "Keyboard shortcuts" page by navigating to `chrome://extensions/shortcuts` in a browser tab. Find this extension on the list and click the edit button to set your own custom keyboard shortcut.
 
-> Does this extension work for all playlists?
+> Does this extension work for all playlists and Liked Songs libraries?
 
-The search feature works for all playlists that have 6,000 songs or less.
+The search feature indexes up to 6,000 songs from a playlist or Liked Songs library.
