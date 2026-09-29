@@ -12,10 +12,17 @@
 
   const pathfinder_message_type =
     "spotify-playlist-page-search:pathfinder-response";
+  const cache_request_type = "spotify-playlist-page-search:request-cache";
+  const tracklist_row_selector = '[data-testid="tracklist-row"]';
+  const default_row_height = 56;
   const track_index = window.spotify_playlist_track_index;
 
   let current_url = window.location.href;
-  let current_page_identity = null;
+  let current_page = get_page_from_url();
+  let current_playlist_id = null;
+  // Spotify serves Liked Songs as a hidden playlist whose id is only known
+  // once the interceptor sees a response for it.
+  let liked_songs_playlist_id = null;
   let search_modal = null;
   let navigation_timeout = null;
   let ui_injection_timeout = null;
@@ -23,25 +30,32 @@
   let selected_result_index = -1;
   let filtered_tracks = [];
   let page_total_count = null;
-  let indexing_state = "idle";
   const indexed_tracks = [];
   const indexed_track_keys = new Set();
 
   const playlist_search = {
     init() {
-      current_page_identity = get_page_identity_from_url();
+      current_page = get_page_from_url();
 
-      if (!current_page_identity) {
+      if (!current_page) {
         return;
       }
 
-      indexing_state = "listening";
-      inject_page_fetch_interceptor();
+      current_playlist_id =
+        current_page.type === "liked-songs"
+          ? liked_songs_playlist_id
+          : current_page.playlist_id;
+
+      request_cached_tracks();
       this.inject_search_button();
       this.inject_jump_to_playing_button();
     },
 
     inject_search_button() {
+      if (!get_page_from_url()) {
+        return;
+      }
+
       const action_bar = document.querySelector(
         'div[data-testid="action-bar-row"]',
       );
@@ -51,11 +65,7 @@
         return;
       }
 
-      const existing_action_bar_button = action_bar.querySelector(
-        ".spotify-playlist-search-button",
-      );
-
-      if (existing_action_bar_button) {
+      if (action_bar.querySelector(".spotify-playlist-search-button")) {
         return;
       }
 
@@ -63,18 +73,11 @@
         .querySelectorAll(".spotify-playlist-search-button")
         .forEach((button) => button.remove());
 
-      const target_element =
-        action_bar.querySelector('button[data-testid="more-button"]') ||
-        action_bar.querySelector("button:last-of-type");
-
-      if (!target_element || !target_element.parentNode) {
-        schedule_ui_injection();
-        return;
-      }
-
-      target_element.parentNode.insertBefore(
+      // Spotify right-aligns its view/sort control, so inserting before it
+      // places the search button right after Spotify's own action buttons.
+      action_bar.insertBefore(
         this.create_search_button(),
-        target_element,
+        get_action_bar_view_control(action_bar),
       );
     },
 
@@ -82,7 +85,7 @@
       const button = document.createElement("button");
       button.className = "spotify-playlist-search-button";
       button.type = "button";
-      const page_label = get_page_label(current_page_identity);
+      const page_label = get_page_label(current_page);
       button.setAttribute("aria-label", `Search ${page_label}`);
       button.setAttribute("title", `Search ${page_label}`);
       button.innerHTML = `
@@ -102,20 +105,20 @@
     },
 
     inject_jump_to_playing_button() {
-      const existing_button = document.querySelector(
-        ".spotify-jump-to-playing-button",
-      );
+      if (!get_page_from_url()) {
+        return;
+      }
 
-      if (existing_button) {
-        existing_button.remove();
+      if (document.querySelector(".spotify-jump-to-playing-button")) {
+        return;
       }
 
       const target_element = document.querySelector(
-        'button[data-testid="lyrics-button"]',
+        'button[data-testid="lyrics-button"], button[data-testid="control-button-queue"]',
       );
 
       if (!target_element || !target_element.parentNode) {
-        setTimeout(() => this.inject_jump_to_playing_button(), 1000);
+        schedule_ui_injection();
         return;
       }
 
@@ -149,7 +152,13 @@
       return button;
     },
 
-    async open_search_modal() {
+    open_search_modal() {
+      synchronize_page();
+
+      if (!current_page) {
+        return;
+      }
+
       if (!search_modal) {
         search_modal = this.create_search_modal();
         document.body.appendChild(search_modal);
@@ -177,7 +186,7 @@
       dialog.innerHTML = `
         <div class="spotify-playlist-search-modal-content">
           <div class="spotify-playlist-search-header">
-            <h2>Search ${escape_html(get_page_label(current_page_identity))}</h2>
+            <h2>Search ${escape_html(get_page_label(current_page))}</h2>
             <div class="spotify-playlist-search-input-container">
               <svg class="spotify-playlist-search-input-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5" fill="none"></circle>
@@ -306,7 +315,7 @@
         const has_query = Boolean(search_input.value.trim());
         const message = has_query
           ? "No songs found"
-          : `${get_page_label(current_page_identity)} tracks are still being indexed.`;
+          : `${get_page_label(current_page)} tracks are still being indexed.`;
 
         content_area.innerHTML = `
           <div class="spotify-playlist-search-empty">
@@ -333,7 +342,7 @@
       track_element.className = "spotify-playlist-search-song";
       track_element.type = "button";
       track_element.dataset.track_id = track.id || "";
-      track_element.dataset.track_uri = track.uri || "";
+      track_element.dataset.track_position = String(track.position);
 
       const artist_names = track.artists.map((artist) => artist.name);
       const album_image_html = track.album_image
@@ -355,7 +364,7 @@
         </span>
       `;
 
-      track_element.addEventListener("click", async () => {
+      track_element.addEventListener("click", () => {
         this.select_track(track);
       });
 
@@ -385,19 +394,17 @@
         ".spotify-playlist-search-content",
       );
       const total_label =
-        typeof page_total_count === "number"
-          ? ` of ${page_total_count}`
-          : "";
+        typeof page_total_count === "number" ? ` of ${page_total_count}` : "";
 
       content_area.innerHTML = `
         <div class="spotify-playlist-search-loading">
-          Indexing ${indexed_tracks.length}${total_label} ${escape_html(get_page_label(current_page_identity))} tracks
+          Indexing ${indexed_tracks.length}${total_label} ${escape_html(get_page_label(current_page))} tracks
         </div>
       `;
     },
 
     handle_pathfinder_response(payload) {
-      if (!payload) {
+      if (!payload || payload.kind !== "pathfinder-response" || !payload.ok) {
         return;
       }
 
@@ -405,73 +412,41 @@
         return;
       }
 
-      if (payload.kind === "quiet-replay-status") {
-        this.handle_quiet_replay_status(payload);
-        return;
-      }
+      const total_count = track_index.get_total_count(payload.response_json);
 
-      if (payload.kind !== "pathfinder-response" || !payload.ok) {
-        return;
-      }
-
-      const total_count = get_page_total_count(
-        current_page_identity,
-        payload.response_json,
-      );
-
-      if (typeof total_count === "number") {
+      if (total_count !== null) {
         page_total_count = total_count;
       }
 
-      const tracks = extract_tracks_from_response(
-        current_page_identity,
+      const tracks = track_index.extract_page_tracks(
         payload.response_json,
         payload.variables,
       );
-      const added_count = add_tracks_to_index(tracks);
+      const added_count = track_index.add_tracks(
+        indexed_tracks,
+        indexed_track_keys,
+        tracks,
+      );
 
-      if (
-        typeof page_total_count === "number" &&
-        indexed_tracks.length >= page_total_count
-      ) {
-        indexing_state = "ready";
-      }
-
-      if (search_modal && search_modal.open) {
+      if (added_count > 0 && search_modal && search_modal.open) {
         this.render_current_search_state();
       }
     },
 
     is_current_page_payload(payload) {
-      if (!payload.page_identity || !current_page_identity) {
+      if (!current_page || !payload.playlist_id) {
         return false;
       }
 
-      return (
-        payload.page_identity.key === current_page_identity.key &&
-        is_operation_for_page(
-          current_page_identity,
-          payload.operation_name,
-        )
-      );
-    },
-
-    handle_quiet_replay_status(payload) {
-      if (payload.status === "started") {
-        indexing_state = "quiet-indexing";
+      if (
+        current_page.type === "liked-songs" &&
+        !current_playlist_id &&
+        payload.is_liked_songs
+      ) {
+        adopt_liked_songs_playlist(payload.playlist_id);
       }
 
-      if (payload.status === "failed") {
-        indexing_state = "listening";
-      }
-
-      if (payload.status === "completed") {
-        indexing_state = "ready";
-      }
-
-      if (search_modal && search_modal.open && indexed_tracks.length === 0) {
-        this.show_indexing_placeholder();
-      }
+      return payload.playlist_id === current_playlist_id;
     },
 
     reset_keyboard_navigation() {
@@ -519,83 +494,21 @@
     },
 
     async select_track(track) {
-      const track_element = await this.find_or_scroll_to_track_element(track);
+      const track_element = await find_or_scroll_to_track_element(track);
 
       if (!track_element) {
-        this.show_error_state("Unable to find that song in the playlist.");
+        this.show_error_state(
+          `Unable to find that song in ${get_page_label(current_page)}.`,
+        );
         return;
       }
 
-      this.click_track_play_button(track_element);
+      click_track_play_button(track_element);
       track_element.scrollIntoView({ behavior: "smooth", block: "center" });
 
       setTimeout(() => {
         search_modal.close();
       }, 300);
-    },
-
-    async find_or_scroll_to_track_element(track) {
-      let track_element = this.find_track_element(track);
-
-      if (track_element) {
-        return track_element;
-      }
-
-      const scroll_container = get_playlist_scroll_container();
-
-      if (!scroll_container) {
-        return null;
-      }
-
-      const track_index = get_indexed_track_position(track);
-
-      if (track_index === -1) {
-        return null;
-      }
-
-      await scroll_to_indexed_track(scroll_container, track_index);
-      track_element = await wait_for_track_element(track, 1500);
-
-      if (track_element) {
-        return track_element;
-      }
-
-      return await nudge_until_track_is_rendered(scroll_container, track);
-    },
-
-    find_track_element(track) {
-      const track_id = track.id || get_track_id(track);
-
-      if (!track_id) {
-        return null;
-      }
-
-      const links = document.querySelectorAll(`a[href*="/track/${track_id}"]`);
-
-      for (const link of links) {
-        const row =
-          link.closest('[data-testid="tracklist-row"]') ||
-          link.closest('[role="row"]');
-
-        if (row) {
-          return row;
-        }
-      }
-
-      return null;
-    },
-
-    click_track_play_button(track_element) {
-      const buttons = track_element.querySelectorAll("button");
-
-      for (const button of buttons) {
-        const label = button.getAttribute("aria-label") || "";
-
-        if (label.startsWith("Play ") || label.includes("Play ")) {
-          button.click();
-          return;
-        }
-      }
     },
 
     show_error_state(message) {
@@ -644,24 +557,24 @@
     },
 
     async jump_to_currently_playing_track() {
-      const playing_track = this.find_playing_track_in_dom();
+      const playing_track_element = find_playing_track_in_dom();
 
-      if (playing_track) {
-        playing_track.scrollIntoView({
+      if (playing_track_element) {
+        playing_track_element.scrollIntoView({
           behavior: "smooth",
           block: "center",
         });
         return;
       }
 
-      const now_playing_track = this.find_now_playing_track_in_index();
+      const now_playing_track = find_now_playing_track_in_index();
 
       if (!now_playing_track) {
         return;
       }
 
       const now_playing_element =
-        await this.find_or_scroll_to_track_element(now_playing_track);
+        await find_or_scroll_to_track_element(now_playing_track);
 
       if (now_playing_element) {
         now_playing_element.scrollIntoView({
@@ -671,59 +584,14 @@
       }
     },
 
-    find_playing_track_in_dom() {
-      const buttons = document.querySelectorAll(
-        '[data-testid="tracklist-row"] button',
-      );
-
-      for (const button of buttons) {
-        const label = button.getAttribute("aria-label");
-
-        if (label && label.includes("Pause")) {
-          return button.closest('[role="row"]');
-        }
-      }
-
-      return null;
-    },
-
-    find_now_playing_track_in_index() {
-      const title_element = document.querySelector(
-        '[data-testid="context-item-info-title"]',
-      );
-
-      if (!title_element) {
-        return null;
-      }
-
-      const title = normalize_search_text(title_element.textContent);
-      const artist_element = document.querySelector(
-        '[data-testid="context-item-info-artist"]',
-      );
-      const artist = normalize_search_text(artist_element?.textContent || "");
-
-      return indexed_tracks.find((track) => {
-        if (normalize_search_text(track.name) !== title) {
-          return false;
-        }
-
-        if (!artist) {
-          return true;
-        }
-
-        return track.artists.some((track_artist) => {
-          return artist.includes(normalize_search_text(track_artist.name));
-        });
-      });
-    },
-
     reset_for_navigation() {
-      current_page_identity = get_page_identity_from_url();
+      current_url = window.location.href;
+      current_page = get_page_from_url();
+      current_playlist_id = null;
       keyboard_navigation_enabled = false;
       selected_result_index = -1;
       filtered_tracks = [];
       page_total_count = null;
-      indexing_state = "listening";
       indexed_tracks.length = 0;
       indexed_track_keys.clear();
 
@@ -739,30 +607,38 @@
         search_modal = null;
       }
 
-      setTimeout(() => this.init(), 500);
+      this.init();
     },
   };
 
-  function inject_page_fetch_interceptor() {
-    const existing_script = document.querySelector(
-      'script[data-spotify-playlist-page-search="fetch-interceptor"]',
-    );
-
-    if (existing_script) {
+  function request_cached_tracks() {
+    if (!current_page) {
       return;
     }
 
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("page-fetch-interceptor.js");
-    script.dataset.spotifyPlaylistPageSearch = "fetch-interceptor";
-    script.onload = function handle_script_load() {
-      script.remove();
-    };
-
-    (document.head || document.documentElement).appendChild(script);
+    window.postMessage(
+      {
+        type: cache_request_type,
+        playlist_id: current_playlist_id,
+        liked_songs: current_page.type === "liked-songs",
+      },
+      window.location.origin,
+    );
   }
 
-  function get_page_identity_from_url(url_value = window.location.href) {
+  function adopt_liked_songs_playlist(playlist_id) {
+    liked_songs_playlist_id = playlist_id;
+    current_playlist_id = playlist_id;
+    request_cached_tracks();
+  }
+
+  function synchronize_page() {
+    if (get_page_from_url()?.key !== current_page?.key) {
+      playlist_search.reset_for_navigation();
+    }
+  }
+
+  function get_page_from_url(url_value = window.location.href) {
     const url = new URL(url_value);
 
     if (url.pathname === "/collection/tracks") {
@@ -771,33 +647,31 @@
 
     const path_parts = url.pathname.split("/");
     const playlist_index = path_parts.indexOf("playlist");
+    const playlist_id =
+      playlist_index === -1 ? null : path_parts[playlist_index + 1] || null;
 
-    if (playlist_index === -1) {
+    if (!playlist_id) {
       return null;
     }
 
-    const playlist_id = path_parts[playlist_index + 1] || null;
-
-    return playlist_id
-      ? { key: `playlist:${playlist_id}`, playlist_id, type: "playlist" }
-      : null;
+    return { key: `playlist:${playlist_id}`, type: "playlist", playlist_id };
   }
 
-  function get_page_label(page_identity) {
-    return page_identity?.type === "liked-songs"
-      ? "Liked Songs"
-      : "Playlist";
+  function get_page_label(page) {
+    return page?.type === "liked-songs" ? "Liked Songs" : "Playlist";
   }
 
-  function is_operation_for_page(page_identity, operation_name) {
-    if (page_identity.type === "liked-songs") {
-      return operation_name === "fetchLibraryTracks";
+  function get_action_bar_view_control(action_bar) {
+    const view_control = action_bar.querySelector(
+      '[data-sortbox-label], button[role="combobox"]',
+    );
+    let insertion_point = view_control;
+
+    while (insertion_point && insertion_point.parentElement !== action_bar) {
+      insertion_point = insertion_point.parentElement;
     }
 
-    return (
-      operation_name === "fetchPlaylist" ||
-      operation_name === "fetchPlaylistContents"
-    );
+    return insertion_point;
   }
 
   function handle_navigation() {
@@ -810,9 +684,7 @@
 
       current_url = window.location.href;
 
-      const next_page_identity = get_page_identity_from_url();
-
-      if (next_page_identity?.key !== current_page_identity?.key) {
+      if (get_page_from_url()?.key !== current_page?.key) {
         playlist_search.reset_for_navigation();
         return;
       }
@@ -822,7 +694,7 @@
   }
 
   function schedule_ui_injection() {
-    if (!get_page_identity_from_url() || ui_injection_timeout) {
+    if (!get_page_from_url() || ui_injection_timeout) {
       return;
     }
 
@@ -846,491 +718,307 @@
       return;
     }
 
+    synchronize_page();
     playlist_search.handle_pathfinder_response(event.data.payload);
   }
 
-  function get_page_total_count(page_identity, response_json) {
-    const total_count =
-      page_identity.type === "liked-songs"
-        ? response_json?.data?.me?.library?.tracks?.totalCount
-        : response_json?.data?.playlistV2?.content?.totalCount;
+  async function find_or_scroll_to_track_element(track) {
+    const rendered_element = find_track_element(track);
 
-    return Number.isFinite(total_count) ? total_count : null;
+    if (rendered_element) {
+      return rendered_element;
+    }
+
+    return await scroll_to_track_row(track);
   }
 
-  function extract_tracks_from_response(
-    page_identity,
-    response_json,
-    variables,
-  ) {
-    if (page_identity.type === "liked-songs") {
-      const tracks_page = response_json?.data?.me?.library?.tracks;
-      const items = tracks_page?.items;
-
-      if (!Array.isArray(items)) {
-        return [];
-      }
-
-      const page_offset = track_index.get_page_offset(
-        variables,
-        tracks_page.pagingInfo,
-      );
-
-      return track_index.position_page_items(
-        items,
-        page_offset,
-        (item) => normalize_track(item?.track?.data),
-      );
-    }
-
-    const tracks = [];
-    const seen_objects = new WeakSet();
-    walk_response(response_json, seen_objects, (value) => {
-      const track = normalize_track(value);
-
-      if (track) {
-        tracks.push(track);
-      }
-    });
-
-    return tracks;
-  }
-
-  function walk_response(value, seen_objects, visitor) {
-    if (!value || typeof value !== "object") {
-      return;
-    }
-
-    if (seen_objects.has(value)) {
-      return;
-    }
-
-    seen_objects.add(value);
-    visitor(value);
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        walk_response(item, seen_objects, visitor);
-      }
-
-      return;
-    }
-
-    for (const child of Object.values(value)) {
-      walk_response(child, seen_objects, visitor);
-    }
-  }
-
-  function normalize_track(value) {
-    const track_data = get_track_data(value);
-
-    if (!track_data) {
-      return null;
-    }
-
-    const uri = get_string(track_data.uri || track_data.itemUri);
-    const id = get_track_id(track_data);
-
-    if (!id && !uri) {
-      return null;
-    }
-
-    const name = get_string(
-      track_data.name || track_data.title || track_data.profile?.name,
+  function find_track_element(track) {
+    const row_element = get_track_row_by_index(
+      track_index.get_track_row_index(track),
     );
 
-    return {
-      id,
-      uri,
-      name,
-      artists: normalize_artists(track_data),
-      album: normalize_album_name(track_data),
-      album_url: normalize_album_url(track_data),
-      album_image: normalize_album_image(track_data),
-      duration: normalize_duration(track_data),
-      playlist_offset: normalize_playlist_offset(value),
-    };
+    if (row_element && row_matches_track(row_element, track)) {
+      return row_element;
+    }
+
+    return find_track_element_by_link(track);
   }
 
-  function get_track_data(value) {
-    const candidates = [
-      value,
-      value.item,
-      value.itemV2,
-      value.itemV2?.data,
-      value.track,
-      value.track?.data,
-    ];
+  function find_track_element_by_link(track) {
+    if (!track.id) {
+      return null;
+    }
 
-    for (const candidate of candidates) {
-      const uri = get_string(candidate?.uri || candidate?.itemUri);
+    const links = document.querySelectorAll(`a[href*="/track/${track.id}"]`);
 
-      if (uri && uri.startsWith("spotify:track:")) {
-        return candidate;
+    for (const link of links) {
+      const row_element = link.closest(tracklist_row_selector);
+
+      if (row_element) {
+        return row_element;
       }
     }
 
     return null;
   }
 
-  function get_track_id(track_data) {
-    const id = get_string(track_data.id);
+  // Spotify virtualizes the track list, so the target row is scrolled toward
+  // repeatedly, using the rows that are rendered after each move to refine
+  // where the target should be, until it appears.
+  async function scroll_to_track_row(track) {
+    const target_row_index = track_index.get_track_row_index(track);
 
-    if (id) {
-      return id;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const grid = get_track_grid();
+      const scroll_container = get_scroll_container(grid);
+
+      if (!scroll_container) {
+        return null;
+      }
+
+      const rendered_rows = get_rendered_rows(grid, scroll_container);
+      const rendered_signature = get_rendered_signature(rendered_rows);
+
+      if (rendered_rows.length === 0) {
+        scroll_container.scrollTo({ top: 0, behavior: "auto" });
+      } else {
+        const reference_row =
+          target_row_index < rendered_rows[0].row_index
+            ? rendered_rows[0]
+            : rendered_rows[rendered_rows.length - 1];
+        const row_height = track_index.estimate_row_height(
+          rendered_rows,
+          reference_row.height || default_row_height,
+        );
+        const target_top = track_index.get_scroll_target_top({
+          reference_row_index: reference_row.row_index,
+          reference_top: reference_row.top,
+          row_height,
+          target_row_index,
+          client_height: scroll_container.clientHeight,
+        });
+        const next_scroll_top = clamp_scroll_top(scroll_container, target_top);
+
+        if (Math.abs(next_scroll_top - scroll_container.scrollTop) >= 1) {
+          scroll_container.scrollTo({ top: next_scroll_top, behavior: "auto" });
+        }
+      }
+
+      // Rows render some time after the scroll, so keep waiting even when the
+      // container is already at the right offset.
+      await wait_for_rendered_rows_change(rendered_signature, 800);
+
+      const row_element = find_track_element(track);
+
+      if (row_element) {
+        return row_element;
+      }
     }
 
-    const uri = get_string(track_data.uri || track_data.itemUri);
-
-    if (!uri || !uri.startsWith("spotify:track:")) {
-      return null;
-    }
-
-    return uri.split(":").pop();
+    return null;
   }
 
-  function normalize_artists(track_data) {
-    const artist_items =
-      track_data.artists?.items ||
-      track_data.artists ||
-      track_data.firstArtist?.items ||
-      [];
+  // Spotify renders several grids on a page: the sidebar library, the track
+  // list, and a "Recommended" block that is also marked up as a track list.
+  // The playlist grid is the one whose row count matches the playlist.
+  function get_track_grid() {
+    const grids = [
+      ...document.querySelectorAll('[role="grid"][aria-rowcount]'),
+    ].filter((grid) => {
+      return !grid.closest('[data-testid="recommended-track"]');
+    });
+    const expected_row_count =
+      typeof page_total_count === "number" ? page_total_count + 1 : null;
 
-    if (!Array.isArray(artist_items)) {
+    return (
+      grids.find((grid) => get_grid_row_count(grid) === expected_row_count) ||
+      grids.find((grid) => grid.querySelector(tracklist_row_selector)) ||
+      null
+    );
+  }
+
+  function get_grid_row_count(grid) {
+    return Number(grid.getAttribute("aria-rowcount"));
+  }
+
+  function get_scroll_container(grid) {
+    const anchor =
+      grid ||
+      document.querySelector(tracklist_row_selector) ||
+      document.querySelector('div[data-testid="action-bar-row"]');
+    let ancestor = anchor?.parentElement || null;
+
+    while (ancestor) {
+      if (is_scrollable(ancestor)) {
+        return ancestor;
+      }
+
+      ancestor = ancestor.parentElement;
+    }
+
+    return document.scrollingElement;
+  }
+
+  function is_scrollable(element) {
+    if (element.scrollHeight <= element.clientHeight + 1) {
+      return false;
+    }
+
+    if (element.hasAttribute("data-overlayscrollbars-viewport")) {
+      return true;
+    }
+
+    const overflow_y = window.getComputedStyle(element).overflowY;
+
+    return overflow_y === "auto" || overflow_y === "scroll";
+  }
+
+  // Rendered rows are described relative to the scroll content, so their
+  // `top` stays meaningful after the container scrolls.
+  function get_rendered_rows(grid, scroll_container) {
+    if (!grid) {
       return [];
     }
 
-    return artist_items
-      .map((artist) => {
-        const artist_data = artist?.profile ? artist : artist?.data || artist;
-        const name = get_string(
-          artist_data?.profile?.name || artist_data?.name,
-        );
-        const uri = get_string(artist_data?.uri);
+    const container_top =
+      scroll_container.getBoundingClientRect().top - scroll_container.scrollTop;
 
-        if (!name) {
+    return [...grid.querySelectorAll('[role="row"][aria-rowindex]')]
+      .map((row) => {
+        const row_element = row.querySelector(tracklist_row_selector);
+        const row_index = Number(row.getAttribute("aria-rowindex"));
+
+        if (!row_element || !Number.isFinite(row_index)) {
           return null;
         }
 
+        const rect = row.getBoundingClientRect();
+
         return {
-          name,
-          uri,
-          url: uri ? get_spotify_url_from_uri(uri) : "",
+          row_index,
+          top: rect.top - container_top,
+          height: rect.height,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((first, second) => first.row_index - second.row_index);
   }
 
-  function normalize_album_name(track_data) {
-    return get_string(
-      track_data.albumOfTrack?.name ||
-        track_data.album?.name ||
-        track_data.albumOfTrack?.profile?.name ||
-        track_data.album?.profile?.name,
-    );
+  function get_rendered_signature(rendered_rows) {
+    return rendered_rows.map((row) => row.row_index).join(",");
   }
 
-  function normalize_album_url(track_data) {
-    const uri = get_string(
-      track_data.albumOfTrack?.uri || track_data.album?.uri,
-    );
+  function get_track_row_by_index(row_index) {
+    const grid = get_track_grid();
 
-    return uri ? get_spotify_url_from_uri(uri) : "";
-  }
-
-  function normalize_album_image(track_data) {
-    const sources =
-      track_data.albumOfTrack?.coverArt?.sources ||
-      track_data.album?.coverArt?.sources ||
-      track_data.albumOfTrack?.coverArt?.extractedColors?.sources ||
-      track_data.coverArt?.sources ||
-      [];
-
-    if (!Array.isArray(sources) || sources.length === 0) {
-      return "";
+    if (!grid) {
+      return null;
     }
 
-    const sorted_sources = [...sources].sort((a, b) => {
-      return (
-        (a.width || Number.MAX_SAFE_INTEGER) -
-        (b.width || Number.MAX_SAFE_INTEGER)
-      );
-    });
-
-    return get_string(sorted_sources[0]?.url);
+    return grid.querySelector(
+      `[role="row"][aria-rowindex="${row_index}"] ${tracklist_row_selector}`,
+    );
   }
 
-  function normalize_duration(track_data) {
-    const total_milliseconds =
-      track_data.duration?.totalMilliseconds ||
-      track_data.duration_ms ||
-      track_data.durationMs;
+  function row_matches_track(row_element, track) {
+    const track_links = row_element.querySelectorAll('a[href*="/track/"]');
 
-    return Number.isFinite(total_milliseconds) ? total_milliseconds : null;
-  }
+    if (track_links.length === 0 || !track.id) {
+      return true;
+    }
 
-  function normalize_playlist_offset(value) {
-    const offset =
-      value.offset ||
-      value.position ||
-      value.index ||
-      value.rowIndex ||
-      value.uid;
-
-    return Number.isFinite(offset) ? offset : null;
-  }
-
-  function add_tracks_to_index(tracks) {
-    return track_index.add_tracks(indexed_tracks, indexed_track_keys, tracks, {
-      sort_by_position: current_page_identity.type === "liked-songs",
+    return [...track_links].some((link) => {
+      return link.getAttribute("href").includes(`/track/${track.id}`);
     });
   }
 
-  function get_string(value) {
-    return typeof value === "string" ? value : "";
-  }
-
-  function get_spotify_url_from_uri(uri) {
-    const parts = uri.split(":");
-
-    if (parts.length < 3) {
-      return "";
-    }
-
-    return `https://open.spotify.com/${parts[1]}/${parts[2]}`;
-  }
-
-  function get_indexed_track_position(track) {
-    return track_index.get_track_position(
-      indexed_tracks,
-      track,
-      current_page_identity.type === "liked-songs",
-    );
-  }
-
-  async function scroll_to_indexed_track(scroll_container, track_index) {
-    const row_height = get_estimated_track_row_height();
-    const header_offset = get_tracklist_header_offset();
-    const target_top = Math.max(
-      header_offset +
-        track_index * row_height -
-        scroll_container.clientHeight / 2,
-      0,
-    );
-
-    scroll_container.scrollTo({
-      top: Math.min(target_top, get_max_scroll_top(scroll_container)),
-      behavior: "auto",
-    });
-
-    await delay(250);
-  }
-
-  function get_estimated_track_row_height() {
-    const rows = [
-      ...document.querySelectorAll('[data-testid="tracklist-row"]'),
-    ];
-
-    if (rows.length >= 2) {
-      const first_rect = rows[0].getBoundingClientRect();
-      const last_rect = rows[rows.length - 1].getBoundingClientRect();
-      const estimated_height =
-        (last_rect.top - first_rect.top) / (rows.length - 1);
-
-      if (estimated_height >= 36 && estimated_height <= 96) {
-        return estimated_height;
-      }
-    }
-
-    if (rows.length === 1) {
-      const row_height = rows[0].getBoundingClientRect().height;
-
-      if (row_height >= 36 && row_height <= 96) {
-        return row_height;
-      }
-    }
-
-    return 56;
-  }
-
-  function get_tracklist_header_offset() {
-    const first_row = document.querySelector('[data-testid="tracklist-row"]');
-    const scroll_container = get_playlist_scroll_container();
-
-    if (!first_row || !scroll_container) {
-      return 96;
-    }
-
-    return Math.max(first_row.offsetTop - scroll_container.offsetTop, 0);
-  }
-
-  async function wait_for_track_element(track, timeout) {
+  async function wait_for_rendered_rows_change(previous_signature, timeout) {
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
-      const track_element = playlist_search.find_track_element(track);
+      await delay(50);
 
-      if (track_element) {
-        return track_element;
+      const grid = get_track_grid();
+      const scroll_container = get_scroll_container(grid);
+
+      if (!scroll_container) {
+        return;
       }
 
-      await delay(100);
-    }
+      const signature = get_rendered_signature(
+        get_rendered_rows(grid, scroll_container),
+      );
 
-    return null;
-  }
-
-  async function nudge_until_track_is_rendered(scroll_container, track) {
-    const row_height = get_estimated_track_row_height();
-    const nudge_offsets = [
-      row_height * 6,
-      -row_height * 6,
-      row_height * 12,
-      -row_height * 12,
-      row_height * 20,
-      -row_height * 20,
-    ];
-
-    for (const offset of nudge_offsets) {
-      scroll_container.scrollTo({
-        top: clamp_scroll_top(
-          scroll_container,
-          scroll_container.scrollTop + offset,
-        ),
-        behavior: "auto",
-      });
-
-      const track_element = await wait_for_track_element(track, 500);
-
-      if (track_element) {
-        return track_element;
+      if (signature !== previous_signature) {
+        return;
       }
     }
-
-    return null;
-  }
-
-  function get_max_scroll_top(scroll_container) {
-    return Math.max(
-      scroll_container.scrollHeight - scroll_container.clientHeight,
-      0,
-    );
   }
 
   function clamp_scroll_top(scroll_container, scroll_top) {
-    return Math.min(
-      Math.max(scroll_top, 0),
-      get_max_scroll_top(scroll_container),
-    );
-  }
-
-  function get_playlist_scroll_container() {
-    const candidates = get_scrollable_candidates();
-
-    return candidates[0] || null;
-  }
-
-  function get_scrollable_candidates() {
-    const candidates = [];
-    const seen_elements = new Set();
-
-    add_scrollable_candidate(
-      candidates,
-      seen_elements,
-      document.querySelector('[data-testid="playlist-tracklist"]'),
+    const max_scroll_top = Math.max(
+      scroll_container.scrollHeight - scroll_container.clientHeight,
+      0,
     );
 
-    document
-      .querySelectorAll("[data-overlayscrollbars-viewport]")
-      .forEach((element) => {
-        add_scrollable_candidate(candidates, seen_elements, element);
-      });
+    return Math.min(Math.max(scroll_top, 0), max_scroll_top);
+  }
 
-    const row = document.querySelector('[data-testid="tracklist-row"]');
+  function click_track_play_button(track_element) {
+    const buttons = track_element.querySelectorAll("button");
 
-    if (row) {
-      let ancestor = row.parentElement;
+    for (const button of buttons) {
+      const label = button.getAttribute("aria-label") || "";
 
-      while (ancestor) {
-        add_scrollable_candidate(candidates, seen_elements, ancestor);
-        ancestor = ancestor.parentElement;
+      if (label.startsWith("Play ") || label.includes(" Play ")) {
+        button.click();
+        return;
+      }
+    }
+  }
+
+  function find_playing_track_in_dom() {
+    const buttons = document.querySelectorAll(`${tracklist_row_selector} button`);
+
+    for (const button of buttons) {
+      const label = button.getAttribute("aria-label") || "";
+
+      if (label.startsWith("Pause ")) {
+        return button.closest(tracklist_row_selector);
       }
     }
 
-    add_scrollable_candidate(
-      candidates,
-      seen_elements,
-      document.querySelector('[role="grid"]'),
+    return null;
+  }
+
+  function find_now_playing_track_in_index() {
+    const title_element = document.querySelector(
+      '[data-testid="context-item-info-title"]',
     );
 
-    add_scrollable_candidate(
-      candidates,
-      seen_elements,
-      document.scrollingElement,
-    );
+    if (!title_element) {
+      return null;
+    }
 
-    return candidates.sort((first, second) => {
-      return (
-        get_scroll_candidate_score(second) - get_scroll_candidate_score(first)
-      );
+    const title = normalize_search_text(title_element.textContent);
+    const artist_element = document.querySelector(
+      '[data-testid="context-item-info-artist"]',
+    );
+    const artist = normalize_search_text(artist_element?.textContent || "");
+
+    return indexed_tracks.find((track) => {
+      if (normalize_search_text(track.name) !== title) {
+        return false;
+      }
+
+      if (!artist) {
+        return true;
+      }
+
+      return track.artists.some((track_artist) => {
+        return artist.includes(normalize_search_text(track_artist.name));
+      });
     });
-  }
-
-  function add_scrollable_candidate(candidates, seen_elements, element) {
-    if (!element || seen_elements.has(element)) {
-      return;
-    }
-
-    seen_elements.add(element);
-
-    if (!is_scrollable_candidate(element)) {
-      return;
-    }
-
-    candidates.push(element);
-  }
-
-  function is_scrollable_candidate(element) {
-    if (element.clientHeight < 250) {
-      return false;
-    }
-
-    if (element.scrollHeight <= element.clientHeight + 100) {
-      return false;
-    }
-
-    const style = window.getComputedStyle(element);
-    const overflow_y = style.overflowY;
-
-    return (
-      overflow_y === "auto" ||
-      overflow_y === "scroll" ||
-      element === document.scrollingElement ||
-      element.hasAttribute("data-overlayscrollbars-viewport")
-    );
-  }
-
-  function get_scroll_candidate_score(element) {
-    let score = 0;
-
-    if (element.hasAttribute("data-overlayscrollbars-viewport")) {
-      score += 100;
-    }
-
-    if (element.querySelector('[data-testid="tracklist-row"]')) {
-      score += 80;
-    }
-
-    if (element.querySelector('[data-testid="playlist-tracklist"]')) {
-      score += 40;
-    }
-
-    score += Math.min(
-      element.scrollHeight / Math.max(element.clientHeight, 1),
-      20,
-    );
-
-    return score;
   }
 
   function delay(milliseconds) {
@@ -1358,9 +1046,7 @@
     document.addEventListener(
       "DOMContentLoaded",
       () => playlist_search.init(),
-      {
-        once: true,
-      },
+      { once: true },
     );
   } else {
     playlist_search.init();
@@ -1373,7 +1059,7 @@
   start_dom_observer();
 
   window.spotify_playlist_page_search_reinject = function reinject() {
-    if (get_page_identity_from_url()?.key !== current_page_identity?.key) {
+    if (get_page_from_url()?.key !== current_page?.key) {
       playlist_search.reset_for_navigation();
       return;
     }

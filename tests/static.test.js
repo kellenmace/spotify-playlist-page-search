@@ -6,41 +6,48 @@ const test = require("node:test");
 
 const background_source = read_source("background.js");
 const content_source = read_source("content-script.js");
-const interceptor_source = read_source("page-fetch-interceptor.js");
 const manifest = JSON.parse(read_source("manifest.json"));
 
-test("manifest injects on playlists and Liked Songs", () => {
-  const matches = manifest.content_scripts[0].matches;
+test("the fetch interceptor runs in the page before Spotify loads", () => {
+  const interceptor = manifest.content_scripts.find((script) =>
+    script.js.includes("page-fetch-interceptor.js"),
+  );
+  const content = manifest.content_scripts.find((script) =>
+    script.js.includes("content-script.js"),
+  );
 
-  assert(matches.includes("https://open.spotify.com/playlist/*"));
-  assert(matches.includes("https://open.spotify.com/collection/tracks*"));
+  for (const script of [interceptor, content]) {
+    assert(script.matches.includes("https://open.spotify.com/*"));
+    assert.equal(script.run_at, "document_start");
+  }
+
+  assert.equal(interceptor.world, "MAIN");
+  assert.deepEqual(content.js, ["track-index.js", "content-script.js"]);
 });
 
-test("background admits only supported Spotify page shapes", () => {
+test("background injects on playlist and Liked Songs pages only", () => {
   assert.match(background_source, /pathname\.startsWith\("\/playlist\/"\)/);
   assert.match(background_source, /pathname === "\/collection\/tracks"/);
   assert.match(background_source, /origin !== "https:\/\/open\.spotify\.com"/);
+  assert.match(background_source, /files: \["track-index\.js", "content-script\.js"\]/);
 });
 
-test("Liked Songs uses its dedicated operation and response page", () => {
-  for (const source of [content_source, interceptor_source]) {
-    assert.match(source, /fetchLibraryTracks/);
-    assert.match(source, /data\?\.me\?\.library\?\.tracks/);
-  }
-
-  assert.match(content_source, /item\?\.track\?\.data/);
+test("the content script recognises both page types", () => {
+  assert.match(content_source, /url\.pathname === "\/collection\/tracks"/);
+  assert.match(content_source, /path_parts\.indexOf\("playlist"\)/);
+  assert.match(content_source, /liked_songs: current_page\.type === "liked-songs"/);
 });
 
-test("payload acceptance checks both page identity and operation", () => {
-  assert.match(content_source, /payload\.page_identity\.key === current_page_identity\.key/);
-  assert.match(content_source, /is_operation_for_page/);
-  assert.match(interceptor_source, /page_identity: request_info\.page_identity/);
+test("the search button follows Spotify's action buttons", () => {
+  assert.match(
+    content_source,
+    /action_bar\.insertBefore\(\s*this\.create_search_button\(\),\s*get_action_bar_view_control\(action_bar\),\s*\)/,
+  );
 });
 
-test("quiet replay overrides offset and limit", () => {
-  assert.match(interceptor_source, /create_replay_body\(template_request\.body_json/);
-  assert.match(interceptor_source, /\{\s*limit,\s*offset,\s*\}/);
-  assert.match(interceptor_source, /template_request\.variables\?\.limit/);
+test("tracks are located by their row index in the virtualized list", () => {
+  assert.match(content_source, /aria-rowindex="\$\{row_index\}"/);
+  assert.match(content_source, /track_index\.get_track_row_index\(track\)/);
 });
 
 function read_source(filename) {

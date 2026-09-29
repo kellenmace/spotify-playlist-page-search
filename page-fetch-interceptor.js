@@ -3,7 +3,9 @@
 
   const installed_key = "__spotify_playlist_page_search_fetch_interceptor__";
   const message_type = "spotify-playlist-page-search:pathfinder-response";
+  const cache_request_type = "spotify-playlist-page-search:request-cache";
   const pathfinder_url = "https://api-partner.spotify.com/pathfinder/v2/query";
+  const playlist_operations = new Set(["fetchPlaylist", "fetchPlaylistContents"]);
   const max_quiet_index_tracks = 6000;
   const quiet_index_batch_size = 1000;
   const quiet_index_concurrency = 2;
@@ -15,7 +17,13 @@
   window[installed_key] = true;
 
   const original_fetch = window.fetch;
-  const page_states = new Map();
+  const playlist_states = new Map();
+  // Spotify serves Liked Songs as a hidden playlist. Its id is only learned
+  // from a fetchPlaylist response whose format is "liked-songs".
+  let liked_songs_playlist_id = null;
+  let liked_songs_wanted = false;
+
+  window.addEventListener("message", handle_cache_request);
 
   window.fetch = async function spotify_playlist_page_search_fetch(
     input,
@@ -24,41 +32,38 @@
     const request_info = await get_request_info(input, init);
     const response = await original_fetch.apply(this, arguments);
 
-    if (is_pathfinder_request(request_info)) {
-      inspect_response(request_info, response);
-      maybe_store_page_request(request_info);
-      maybe_start_quiet_indexing(request_info.page_identity);
+    if (request_info) {
+      observe_playlist_response(request_info, response);
     }
 
     return response;
   };
 
-  function is_pathfinder_request(request_info) {
-    return (
-      request_info.url === pathfinder_url &&
-      request_info.method.toUpperCase() === "POST"
-    );
-  }
-
   async function get_request_info(input, init) {
     const request = input instanceof Request ? input : null;
     const url = request ? request.url : String(input);
-    const method =
-      init?.method || request?.method || (init?.body ? "POST" : "GET");
-    const headers = sanitize_replay_headers(
-      serialize_headers(init?.headers || request?.headers)
-    );
+    const method = (init?.method || request?.method || "GET").toUpperCase();
+
+    if (url !== pathfinder_url || method !== "POST") {
+      return null;
+    }
+
     const body_text = await get_request_body_text(input, init);
     const body_json = parse_json(body_text);
     const variables = normalize_variables(body_json?.variables);
-    const playlist_id = get_playlist_id_from_variables(variables);
-    const page_identity = get_page_identity(window.location.href, playlist_id);
+    const operation_name = body_json?.operationName || null;
+    const playlist_id = get_playlist_id_from_uri(variables?.uri);
+
+    if (!playlist_operations.has(operation_name) || !playlist_id) {
+      return null;
+    }
 
     return {
       url,
       method,
-      headers,
-      body_text,
+      headers: sanitize_replay_headers(
+        serialize_headers(init?.headers || request?.headers)
+      ),
       body_json,
       credentials: init?.credentials || request?.credentials || "same-origin",
       mode: init?.mode || request?.mode || "cors",
@@ -69,10 +74,10 @@
         init?.referrerPolicy ||
         request?.referrerPolicy ||
         "strict-origin-when-cross-origin",
-      operation_name: body_json?.operationName || null,
+      operation_name,
       variables,
       playlist_id,
-      page_identity,
+      quiet_replay: false,
     };
   }
 
@@ -141,148 +146,165 @@
     return sanitized_headers;
   }
 
-  function inspect_response(request_info, response) {
+  function observe_playlist_response(request_info, response) {
     response
       .clone()
       .json()
       .then((response_json) => {
-        const page_identity = resolve_page_identity(
-          request_info,
-          response_json
-        );
-        const scoped_request_info = {
-          ...request_info,
-          page_identity,
-        };
-        handle_observed_response(scoped_request_info, response_json);
-        post_pathfinder_response(scoped_request_info, response, response_json);
+        handle_playlist_response(request_info, response, response_json);
       })
       .catch((error) => {
         post_message({
           kind: "parse-error",
           operation_name: request_info.operation_name,
           playlist_id: request_info.playlist_id,
-          page_identity: request_info.page_identity,
           status: response.status,
           error: error.message,
         });
       });
   }
 
-  function post_pathfinder_response(request_info, response, response_json) {
-    post_message({
+  function handle_playlist_response(request_info, response, response_json) {
+    const state = get_playlist_state(request_info.playlist_id);
+    const playlist = response_json?.data?.playlistV2;
+    const total_count = playlist?.content?.totalCount;
+
+    if (playlist?.format === "liked-songs") {
+      state.is_liked_songs = true;
+      liked_songs_playlist_id = request_info.playlist_id;
+
+      if (liked_songs_wanted) {
+        state.wanted = true;
+      }
+    }
+
+    if (response.ok && Number.isFinite(total_count)) {
+      state.total_count = total_count;
+    }
+
+    if (response.ok && request_info.body_json && !request_info.quiet_replay) {
+      state.template_request = request_info;
+    }
+
+    post_playlist_page(state, request_info, response, response_json);
+    maybe_start_quiet_indexing(state);
+  }
+
+  function post_playlist_page(state, request_info, response, response_json) {
+    const payload = {
       kind: "pathfinder-response",
-      url: request_info.url,
-      method: request_info.method,
       operation_name: request_info.operation_name,
       playlist_id: request_info.playlist_id,
-      page_identity: request_info.page_identity,
+      is_liked_songs: state.is_liked_songs,
       variables: request_info.variables,
-      quiet_replay: Boolean(request_info.quiet_replay),
-      quiet_replay_offset: request_info.quiet_replay_offset ?? null,
+      quiet_replay: request_info.quiet_replay,
       status: response.status,
       ok: response.ok,
       response_json,
-    });
+    };
+
+    if (response.ok) {
+      const offset = request_info.variables?.offset || 0;
+      const limit = request_info.variables?.limit || 0;
+      state.responses.set(`${offset}:${limit}`, payload);
+    }
+
+    post_message(payload);
   }
 
-  function handle_observed_response(request_info, response_json) {
-    if (!is_operation_for_page(request_info)) {
+  function handle_cache_request(event) {
+    if (
+      event.source !== window ||
+      event.origin !== window.location.origin ||
+      event.data?.type !== cache_request_type
+    ) {
       return;
     }
 
-    const page_identity = resolve_page_identity(request_info, response_json);
+    if (event.data.liked_songs) {
+      liked_songs_wanted = true;
+    }
 
-    if (!page_identity) {
+    const playlist_id = event.data.liked_songs
+      ? liked_songs_playlist_id
+      : event.data.playlist_id;
+
+    if (!playlist_id) {
       return;
     }
 
-    const total_count = get_page_total_count(page_identity, response_json);
+    // Only playlists the content script asks about are fully indexed, so the
+    // playlists Spotify fetches for its sidebar or Home page are left alone.
+    const state = get_playlist_state(playlist_id);
+    state.wanted = true;
 
-    if (!Number.isFinite(total_count)) {
-      return;
+    for (const payload of state.responses.values()) {
+      post_message({ ...payload, is_liked_songs: state.is_liked_songs });
     }
 
-    const state = get_page_state(page_identity);
-    state.total_count = total_count;
-    maybe_start_quiet_indexing(page_identity);
+    maybe_start_quiet_indexing(state);
   }
 
-  function maybe_store_page_request(request_info) {
-    if (!is_page_content_operation(request_info)) {
-      return;
-    }
-
-    if (!request_info.page_identity || !request_info.body_json) {
-      return;
-    }
-
-    const state = get_page_state(request_info.page_identity);
-    state.template_request = request_info;
-  }
-
-  function maybe_start_quiet_indexing(page_identity) {
-    if (!page_identity) {
-      return;
-    }
-
-    const state = get_page_state(page_identity);
-
-    if (state.started || !Number.isFinite(state.total_count)) {
-      return;
-    }
-
-    if (!state.template_request) {
+  function maybe_start_quiet_indexing(state) {
+    if (
+      state.started ||
+      !state.wanted ||
+      !state.template_request ||
+      !Number.isFinite(state.total_count)
+    ) {
       return;
     }
 
     state.started = true;
-    replay_page_contents(state.template_request, state.total_count);
+    replay_playlist_contents(state.template_request, state.total_count);
   }
 
-  async function replay_page_contents(template_request, total_count) {
+  async function replay_playlist_contents(template_request, total_count) {
     const capped_total = Math.min(total_count, max_quiet_index_tracks);
-    const batch_size = get_quiet_batch_size(template_request);
     const offsets = [];
 
-    for (let offset = 0; offset < capped_total; offset += batch_size) {
+    for (
+      let offset = 0;
+      offset < capped_total;
+      offset += quiet_index_batch_size
+    ) {
       offsets.push(offset);
     }
 
-    post_quiet_replay_status("started", template_request.page_identity, {
-      page_total_count: total_count,
+    post_quiet_replay_status("started", template_request.playlist_id, {
+      total_count,
       max_quiet_index_tracks,
-      batch_size,
+      batch_size: quiet_index_batch_size,
       request_count: offsets.length,
       concurrency: quiet_index_concurrency,
     });
 
     try {
-      await run_with_concurrency(offsets, quiet_index_concurrency, async (offset) => {
-        await replay_page_contents_page(
-          template_request,
-          offset,
-          Math.min(batch_size, capped_total - offset)
-        );
-      });
+      await run_with_concurrency(
+        offsets,
+        quiet_index_concurrency,
+        async (offset) => {
+          await replay_playlist_page(
+            template_request,
+            offset,
+            Math.min(quiet_index_batch_size, capped_total - offset)
+          );
+        }
+      );
 
-      post_quiet_replay_status("completed", template_request.page_identity, {
-        page_total_count: total_count,
+      post_quiet_replay_status("completed", template_request.playlist_id, {
+        total_count,
         requested_track_count: capped_total,
       });
     } catch (error) {
-      post_quiet_replay_status("failed", template_request.page_identity, {
+      post_quiet_replay_status("failed", template_request.playlist_id, {
         reason: error.message,
-        page_total_count: total_count,
+        total_count,
       });
     }
   }
 
-  async function replay_page_contents_page(
-    template_request,
-    offset,
-    limit
-  ) {
+  async function replay_playlist_page(template_request, offset, limit) {
     const replay_body = create_replay_body(template_request.body_json, {
       limit,
       offset,
@@ -292,7 +314,6 @@
       throw new Error("Unable to create replay body");
     }
 
-    const replay_body_json = JSON.parse(replay_body);
     const response = await original_fetch.call(window, template_request.url, {
       method: template_request.method,
       headers: template_request.headers,
@@ -305,17 +326,14 @@
       referrerPolicy: template_request.referrer_policy,
     });
     const response_json = await response.clone().json();
+    const replay_body_json = JSON.parse(replay_body);
 
-    post_pathfinder_response(
+    handle_playlist_response(
       {
         ...template_request,
-        body_text: replay_body,
         body_json: replay_body_json,
         variables: normalize_variables(replay_body_json.variables),
-        playlist_id: template_request.playlist_id,
-        page_identity: template_request.page_identity,
         quiet_replay: true,
-        quiet_replay_offset: offset,
       },
       response,
       response_json
@@ -324,18 +342,6 @@
     if (!response.ok) {
       throw new Error(`Quiet replay request failed with ${response.status}`);
     }
-  }
-
-  function get_quiet_batch_size(template_request) {
-    if (template_request.page_identity.type === "playlist") {
-      return quiet_index_batch_size;
-    }
-
-    const observed_limit = template_request.variables?.limit;
-
-    return Number.isFinite(observed_limit) && observed_limit > 0
-      ? observed_limit
-      : 50;
   }
 
   async function run_with_concurrency(items, concurrency, worker) {
@@ -354,49 +360,41 @@
   }
 
   function create_replay_body(body_json, overrides) {
-    if (!body_json || !body_json.variables) {
-      return "";
-    }
-
-    const replay_body = structuredClone(body_json);
-    const variables_are_string = typeof replay_body.variables === "string";
-    const variables = normalize_variables(replay_body.variables);
+    const variables = normalize_variables(body_json?.variables);
 
     if (!variables) {
       return "";
     }
 
-    const replay_variables = {
-      ...variables,
-      ...overrides,
-    };
-    replay_body.variables = variables_are_string
-      ? JSON.stringify(replay_variables)
-      : replay_variables;
+    const replay_body = structuredClone(body_json);
+    const replay_variables = { ...variables, ...overrides };
+    replay_body.variables =
+      typeof body_json.variables === "string"
+        ? JSON.stringify(replay_variables)
+        : replay_variables;
 
     return JSON.stringify(replay_body);
   }
 
-  function get_page_state(page_identity) {
-    if (!page_states.has(page_identity.key)) {
-      page_states.set(page_identity.key, {
+  function get_playlist_state(playlist_id) {
+    if (!playlist_states.has(playlist_id)) {
+      playlist_states.set(playlist_id, {
         started: false,
+        wanted: false,
+        is_liked_songs: false,
         template_request: null,
         total_count: null,
+        responses: new Map(),
       });
     }
 
-    return page_states.get(page_identity.key);
+    return playlist_states.get(playlist_id);
   }
 
-  function post_quiet_replay_status(status, page_identity, details) {
+  function post_quiet_replay_status(status, playlist_id, details) {
     post_message({
       kind: "quiet-replay-status",
-      page_identity,
-      operation_name:
-        page_identity.type === "liked-songs"
-          ? "fetchLibraryTracks"
-          : "fetchPlaylistContents",
+      playlist_id,
       status,
       details,
     });
@@ -414,96 +412,23 @@
   }
 
   function normalize_variables(variables) {
-    if (!variables) {
-      return null;
-    }
-
     if (typeof variables === "string") {
       return parse_json(variables);
     }
 
-    if (typeof variables === "object") {
+    if (variables && typeof variables === "object") {
       return variables;
     }
 
     return null;
   }
 
-  function get_playlist_id_from_variables(variables) {
-    const uri = variables?.uri || variables?.playlistUri;
-
-    if (typeof uri !== "string") {
+  function get_playlist_id_from_uri(uri) {
+    if (typeof uri !== "string" || !uri.startsWith("spotify:playlist:")) {
       return null;
     }
 
-    if (!uri.startsWith("spotify:playlist:")) {
-      return null;
-    }
-
-    return uri.split(":").pop();
-  }
-
-  function get_playlist_id_from_response(response_json) {
-    const uri = response_json?.data?.playlistV2?.uri;
-
-    if (typeof uri === "string" && uri.startsWith("spotify:playlist:")) {
-      return uri.split(":").pop();
-    }
-
-    return null;
-  }
-
-  function get_page_identity(url_value, playlist_id) {
-    const url = new URL(url_value);
-
-    if (url.pathname === "/collection/tracks") {
-      return { key: "liked-songs", type: "liked-songs" };
-    }
-
-    if (!url.pathname.startsWith("/playlist/") || !playlist_id) {
-      return null;
-    }
-
-    return {
-      key: `playlist:${playlist_id}`,
-      playlist_id,
-      type: "playlist",
-    };
-  }
-
-  function resolve_page_identity(request_info, response_json) {
-    if (request_info.page_identity?.type === "liked-songs") {
-      return request_info.page_identity;
-    }
-
-    const playlist_id =
-      request_info.playlist_id || get_playlist_id_from_response(response_json);
-
-    return get_page_identity(window.location.href, playlist_id);
-  }
-
-  function is_operation_for_page(request_info) {
-    if (request_info.page_identity?.type === "liked-songs") {
-      return request_info.operation_name === "fetchLibraryTracks";
-    }
-
-    return request_info.operation_name === "fetchPlaylist";
-  }
-
-  function is_page_content_operation(request_info) {
-    if (request_info.page_identity?.type === "liked-songs") {
-      return request_info.operation_name === "fetchLibraryTracks";
-    }
-
-    return request_info.operation_name === "fetchPlaylistContents";
-  }
-
-  function get_page_total_count(page_identity, response_json) {
-    if (page_identity.type === "liked-songs") {
-      return response_json?.data?.me?.library?.tracks?.totalCount;
-    }
-
-    return response_json?.data?.playlistV2?.content?.totalCount;
+    return uri.split(":").pop() || null;
   }
 
   function parse_json(text) {

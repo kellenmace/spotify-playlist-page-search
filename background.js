@@ -56,6 +56,12 @@
     }
 
     try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab_id },
+        files: ["page-fetch-interceptor.js"],
+        world: "MAIN",
+      });
+
       await chrome.scripting.insertCSS({
         target: { tabId: tab_id },
         files: ["content-script.css"],
