@@ -70,6 +70,37 @@
   width: 16px;
 }
 
+/* Mirrors the tooltip Spotify shows for its own buttons */
+.spotify-playlist-search-tooltip {
+  animation: spotify-playlist-search-tooltip-fade-in 0.2s ease-in-out;
+  background-color: #282828;
+  border-radius: 4px;
+  box-shadow:
+    0 16px 24px rgba(0, 0, 0, 0.3),
+    0 6px 8px rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 400;
+  left: 0;
+  line-height: normal;
+  max-width: 50ch;
+  padding: 4px 8px;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  z-index: 9999;
+}
+
+@keyframes spotify-playlist-search-tooltip-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .spotify-playlist-search-modal {
   background: transparent;
   border: 0;

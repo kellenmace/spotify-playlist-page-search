@@ -15,6 +15,8 @@
   const cache_request_type = "spotify-playlist-page-search:request-cache";
   const tracklist_row_selector = '[data-testid="tracklist-row"]';
   const default_row_height = 56;
+  // Spotify waits this long before fading in its hover tooltips.
+  const tooltip_show_delay = 200;
   const track_index = window.spotify_playlist_track_index;
 
   let current_url = window.location.href;
@@ -85,9 +87,14 @@
       const button = document.createElement("button");
       button.className = "spotify-playlist-search-button";
       button.type = "button";
-      const page_label = get_page_label(current_page);
-      button.setAttribute("aria-label", `Search ${page_label}`);
-      button.setAttribute("title", `Search ${page_label}`);
+      // Sentence case matches Spotify's other action bar buttons, but Liked
+      // Songs keeps its capitals because Spotify treats it as a name.
+      const button_label =
+        current_page?.type === "liked-songs"
+          ? "Search Liked Songs"
+          : "Search playlist";
+      button.setAttribute("aria-label", button_label);
+      attach_tooltip(button, button_label);
       button.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5" fill="none"></circle>
@@ -130,8 +137,8 @@
       const button = document.createElement("button");
       button.className = "spotify-jump-to-playing-button";
       button.type = "button";
-      button.setAttribute("title", "Jump to playing song");
       button.setAttribute("aria-label", "Jump to playing song");
+      attach_tooltip(button, "Jump to playing song");
       button.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
           <rect x="1" y="1.75" width="14" height="1.5" rx="0.75"></rect>
@@ -595,6 +602,7 @@
 
       document.querySelector(".spotify-playlist-search-button")?.remove();
       document.querySelector(".spotify-jump-to-playing-button")?.remove();
+      document.querySelector(".spotify-playlist-search-tooltip")?.remove();
 
       if (search_modal) {
         if (search_modal.open) {
@@ -679,6 +687,74 @@
     return document.querySelector(
       'div:has(> button[data-testid="lyrics-button"]), div:has(> div > button[data-testid="control-button-queue"])',
     );
+  }
+
+  // Recreates the tooltip Spotify shows for its own buttons, which the
+  // browser's native title tooltip does not match.
+  function attach_tooltip(element, text) {
+    let tooltip = null;
+    let show_timeout = null;
+
+    function schedule_tooltip() {
+      if (tooltip || show_timeout) {
+        return;
+      }
+
+      show_timeout = setTimeout(show_tooltip, tooltip_show_delay);
+    }
+
+    function show_tooltip() {
+      show_timeout = null;
+
+      if (!element.isConnected) {
+        return;
+      }
+
+      tooltip = create_tooltip(text);
+      document.body.append(tooltip);
+      position_tooltip(tooltip, element);
+    }
+
+    function hide_tooltip() {
+      clearTimeout(show_timeout);
+      show_timeout = null;
+      tooltip?.remove();
+      tooltip = null;
+    }
+
+    element.addEventListener("mouseenter", schedule_tooltip);
+    element.addEventListener("focus", schedule_tooltip);
+    element.addEventListener("mouseleave", hide_tooltip);
+    element.addEventListener("blur", hide_tooltip);
+    element.addEventListener("click", hide_tooltip);
+    element.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        hide_tooltip();
+      }
+    });
+  }
+
+  function create_tooltip(text) {
+    const tooltip = document.createElement("div");
+    tooltip.className = "spotify-playlist-search-tooltip";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.textContent = text;
+    return tooltip;
+  }
+
+  // Centers the tooltip 8px above the element, kept inside the viewport.
+  function position_tooltip(tooltip, element) {
+    const gap = 8;
+    const element_rect = element.getBoundingClientRect();
+    const tooltip_rect = tooltip.getBoundingClientRect();
+    const centered_left =
+      element_rect.left + element_rect.width / 2 - tooltip_rect.width / 2;
+    const max_left = window.innerWidth - tooltip_rect.width - gap;
+    const left = Math.max(gap, Math.min(centered_left, max_left));
+    const top = Math.max(gap, element_rect.top - tooltip_rect.height - gap);
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
   }
 
   function handle_navigation() {
