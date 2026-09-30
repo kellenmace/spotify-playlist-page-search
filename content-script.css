@@ -1,7 +1,6 @@
 /* Spotify Playlist Page Search Extension Styles */
 
-.spotify-playlist-search-button,
-.spotify-jump-to-playing-button {
+.spotify-playlist-search-button {
   align-items: center;
   background-color: rgba(255, 255, 255, 0.1);
   border: 0;
@@ -19,22 +18,87 @@
   width: 32px;
 }
 
-.spotify-playlist-search-button:hover,
-.spotify-jump-to-playing-button:hover {
+.spotify-playlist-search-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
   color: #ffffff;
   transform: scale(1.04);
 }
 
-.spotify-playlist-search-button:active,
-.spotify-jump-to-playing-button:active {
+.spotify-playlist-search-button:active {
   transform: scale(0.96);
 }
 
-.spotify-playlist-search-button svg,
-.spotify-jump-to-playing-button svg {
+.spotify-playlist-search-button svg {
   height: 16px;
   width: 16px;
+}
+
+/* Mirrors the native Now Playing bar buttons (Lyrics, Queue, etc.) */
+.spotify-jump-to-playing-button {
+  align-items: center;
+  background-color: transparent;
+  border: 0;
+  border-radius: 9999px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  flex-shrink: 0;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  transition:
+    color 0.15s cubic-bezier(0.3, 0, 0, 1),
+    transform 0.15s cubic-bezier(0.3, 0, 0, 1);
+  width: 32px;
+}
+
+.spotify-jump-to-playing-button:hover,
+.spotify-jump-to-playing-button:focus-visible {
+  color: #ffffff;
+  transform: scale(1.04);
+}
+
+.spotify-jump-to-playing-button:hover:active,
+.spotify-jump-to-playing-button:focus-visible:active {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.spotify-jump-to-playing-button svg {
+  fill: currentColor;
+  height: 16px;
+  width: 16px;
+}
+
+/* Mirrors the tooltip Spotify shows for its own buttons */
+.spotify-playlist-search-tooltip {
+  animation: spotify-playlist-search-tooltip-fade-in 0.2s ease-in-out;
+  background-color: #282828;
+  border-radius: 4px;
+  box-shadow:
+    0 16px 24px rgba(0, 0, 0, 0.3),
+    0 6px 8px rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 400;
+  left: 0;
+  line-height: normal;
+  max-width: 50ch;
+  padding: 4px 8px;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  z-index: 9999;
+}
+
+@keyframes spotify-playlist-search-tooltip-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .spotify-playlist-search-modal {
