@@ -694,6 +694,24 @@
   function attach_tooltip(element, text) {
     let tooltip = null;
     let show_timeout = null;
+    let skip_next_focus = false;
+
+    // When focus moves from the element into a dialog (like the search
+    // modal), the browser returns focus to the element once the dialog
+    // closes. The user didn't choose the element then, so skip the tooltip.
+    function handle_focus() {
+      if (skip_next_focus) {
+        skip_next_focus = false;
+        return;
+      }
+
+      schedule_tooltip();
+    }
+
+    function handle_blur(event) {
+      skip_next_focus = Boolean(event.relatedTarget?.closest("dialog"));
+      hide_tooltip();
+    }
 
     function schedule_tooltip() {
       if (tooltip || show_timeout) {
@@ -723,9 +741,9 @@
     }
 
     element.addEventListener("mouseenter", schedule_tooltip);
-    element.addEventListener("focus", schedule_tooltip);
+    element.addEventListener("focus", handle_focus);
     element.addEventListener("mouseleave", hide_tooltip);
-    element.addEventListener("blur", hide_tooltip);
+    element.addEventListener("blur", handle_blur);
     element.addEventListener("click", hide_tooltip);
     element.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
