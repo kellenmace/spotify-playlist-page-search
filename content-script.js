@@ -113,18 +113,16 @@
         return;
       }
 
-      const target_element = document.querySelector(
-        'button[data-testid="lyrics-button"], button[data-testid="control-button-queue"]',
-      );
+      const now_playing_bar_controls = get_now_playing_bar_controls();
 
-      if (!target_element || !target_element.parentNode) {
+      if (!now_playing_bar_controls) {
         schedule_ui_injection();
         return;
       }
 
-      target_element.parentNode.insertBefore(
+      now_playing_bar_controls.insertBefore(
         this.create_jump_to_playing_button(),
-        target_element,
+        now_playing_bar_controls.firstElementChild,
       );
     },
 
@@ -135,11 +133,11 @@
       button.setAttribute("title", "Jump to playing song");
       button.setAttribute("aria-label", "Jump to playing song");
       button.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="16" height="16" aria-hidden="true">
-          <rect x="100" y="120" width="400" height="50" fill="currentColor"></rect>
-          <polygon points="100,235 100,365 220,300" fill="currentColor"></polygon>
-          <rect x="250" y="275" width="250" height="50" fill="currentColor"></rect>
-          <rect x="100" y="430" width="400" height="50" fill="currentColor"></rect>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <rect x="1" y="1.75" width="14" height="1.5" rx="0.75"></rect>
+          <polygon points="1,5.5 1,10.5 5.5,8"></polygon>
+          <rect x="7" y="7.25" width="8" height="1.5" rx="0.75"></rect>
+          <rect x="1" y="12.75" width="14" height="1.5" rx="0.75"></rect>
         </svg>
       `;
 
@@ -672,6 +670,15 @@
     }
 
     return insertion_point;
+  }
+
+  // The Lyrics button is a direct child of the Now Playing bar's control row,
+  // but the Queue button is wrapped in its own div. The Lyrics button renders
+  // late (or never, for some content), so match the row through either one.
+  function get_now_playing_bar_controls() {
+    return document.querySelector(
+      'div:has(> button[data-testid="lyrics-button"]), div:has(> div > button[data-testid="control-button-queue"])',
+    );
   }
 
   function handle_navigation() {
