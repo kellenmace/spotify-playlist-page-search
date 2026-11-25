@@ -1084,7 +1084,9 @@
     for (const button of buttons) {
       const label = button.getAttribute("aria-label") || "";
 
-      if (label.startsWith("Pause ")) {
+      // Spotify labels the playing row's button "Pause", with the track name
+      // appended in some versions.
+      if (label === "Pause" || label.startsWith("Pause ")) {
         return button.closest(tracklist_row_selector);
       }
     }
@@ -1094,7 +1096,7 @@
 
   function find_now_playing_track_in_index() {
     const title_element = document.querySelector(
-      '[data-testid="context-item-info-title"]',
+      '[data-testid="context-item-link"], [data-testid="context-item-info-title"]',
     );
 
     if (!title_element) {
@@ -1103,7 +1105,7 @@
 
     const title = normalize_search_text(title_element.textContent);
     const artist_element = document.querySelector(
-      '[data-testid="context-item-info-artist"]',
+      '[data-testid="now-playing-widget-v2-byline"], [data-testid="context-item-info-artist"]',
     );
     const artist = normalize_search_text(artist_element?.textContent || "");
 

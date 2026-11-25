@@ -50,6 +50,12 @@ test("tracks are located by their row index in the virtualized list", () => {
   assert.match(content_source, /track_index\.get_track_row_index\(track\)/);
 });
 
+test("the playing track is found by Spotify's current Pause label and Now Playing markup", () => {
+  assert.match(content_source, /label === "Pause" \|\| label\.startsWith\("Pause "\)/);
+  assert.match(content_source, /data-testid="context-item-link"/);
+  assert.match(content_source, /data-testid="now-playing-widget-v2-byline"/);
+});
+
 function read_source(filename) {
   return fs.readFileSync(`${__dirname}/../${filename}`, "utf8");
 }
