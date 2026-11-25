@@ -29,3 +29,13 @@ This extension provides an alt/option + shift + s keyboard shortcut you can use 
 > Does this extension work for all playlists and Liked Songs libraries?
 
 The search feature indexes up to 6,000 songs from a playlist or Liked Songs library.
+
+## Packaging For The Chrome Web Store
+
+Run this command to build the zip file to upload to the Chrome Web Store:
+
+```bash
+./scripts/package-extension.sh
+```
+
+The zip is written to `dist/` and contains only the files the extension needs at runtime.
